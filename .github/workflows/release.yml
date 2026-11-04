@@ -1,0 +1,106 @@
+name: Release macOS
+
+"on":
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '版本标签，例如 v0.2.0；验证时可填写尚未创建的候选标签'
+        required: true
+        type: string
+      publish_release:
+        description: '将附件发布到已有版本标签的 GitHub Release'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      OBSERVER_BUILD_MODE: publish
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ (github.event_name == 'push' || inputs.publish_release) && format('refs/tags/{0}', env.RELEASE_TAG) || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Prepare Python checks
+        run: |
+          mkdir -p tmp logs
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run setup:electron
+      - name: Check tag, source and tests
+        working-directory: desktop
+        run: |
+          npm run release:check-tag -- --tag "$RELEASE_TAG"
+          npm run check
+          npm test
+      - name: Build publish application
+        working-directory: desktop
+        run: npm run build:publish
+      - name: Verify application and create release archive
+        working-directory: desktop
+        run: npm run release:archive -- --tag "$RELEASE_TAG"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: macOS-arm64-publish
+          path: desktop/release-assets/*
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.publish_release == true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: macOS-arm64-publish
+          path: assets
+      - name: Verify release attachments
+        working-directory: assets
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          jq -e --arg tag "$RELEASE_TAG" '.mode == "publish" and .tag == $tag and .arch == "arm64"' ./*.json
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" assets/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "x-scening $RELEASE_TAG" --generate-notes
+          fi

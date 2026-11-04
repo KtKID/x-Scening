@@ -134,3 +134,5 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 - [每日总结统一弹窗任务](docs/spec/daily-review-automation/tasks/task-unified-review-dialog.md)：2026-11-04用户明确要求自动、右侧按钮、每日页生成与重新生成共用现有档案弹窗；每日页已有总结直接展示完整档案，缺总结提供“生成总结”，正文与保存逻辑共享；后台保留待展示状态，可见且聚焦的窗口实际呈现成功正文后确认。
 
 - [每日自动总结实施报告](docs/spec/daily-review-automation/tasks/task-daily-review-automation/dev-report.md)：设置时间默认03:00，按报告日期独立生成与保存状态；部分分析补总结、三次自动预算、完整错误、居中总结和次日首次展示已实现，执行范围与证据见报告。
+
+- GitHub Release工作流为`.github/workflows/release.yml`，推送v三段版本标签后以publish打包macOS arm64客户端。CI版本固定采用源码和标签的一致版本，同标签重试复用版本；本地人工打包继续按原规则升版。手动工作流默认只验证，正式发布需显式选择。上传前须核验实际包中的模式、版本、构建标记、图标与架构，并完成ZIP解压回读及SHA256核对。

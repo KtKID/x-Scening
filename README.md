@@ -171,3 +171,7 @@ desktop/scripts/run.sh run build
 ```
 
 当前处于 P0/MVP 持续验证阶段，重点是采集、理解、保存与回看的完整流程。后续方向包括跨日任务连续性、浏览器上下文增强和基于活动记忆的主动协助。
+
+## 自动打包发布
+
+推送与源码版本一致的`v`标签（例如`v0.2.0`），GitHub Actions会构建macOS Apple Silicon客户端，明确使用`publish`模式，核对实际包的模式、版本、架构和Logo后发布Release附件。手动运行默认仅验证候选包。版本准备和命令见[GitHub Release说明](desktop/README.md#github-release)，运行结果见[Actions](https://github.com/KtKID/x-scening/actions/workflows/release.yml)。

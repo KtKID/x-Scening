@@ -216,3 +216,19 @@ Python默认凑满三份候选后分析一张时间标签拼图，客户端卡�
 - 修正按钮悬停文字对比与禁用等待光标；当前日期直接显示“请选择历史日期”，空日显示“暂无截图”，实际请求期间显示处理中。真实点击与打包验证见[修复报告](../reports/fix/fix-report-20261031-backfill-button.md)。
 
 - 2026-11-03 每日回顾统一使用完整报告协议；桌面、CLI与MCP共用权威模型并保留已保存正文。用户明确要求清理刚加入的旧客户端分流，规则与结果见[单一读取协议task](../docs/spec/daily-review-automation/tasks/task-single-report-protocol.md)。
+
+## GitHub Release
+
+推送三段版本标签（例如`v0.2.0`）会触发`.github/workflows/release.yml`，在macOS arm64环境检查代码并明确调用`build:publish`。标签须与`desktop/package.json`版本一致；Release准备版本遵循中段加1、末段归零。
+
+流程读取实际应用包中的主进程、版本和构建标记，核对publish模式、arm64架构及产品图标；ZIP生成后重新解压回读，再上传ZIP、JSON清单和SHA256SUMS。核对全部通过后创建Release；相同标签重试更新对应附件。工作流使用当前仓库GITHUB_TOKEN，发布job单独声明contents:write。
+
+Actions里的“Run workflow”要求填写候选标签，`publish_release`默认false，仅构建并保留候选附件；正式手动发布需选择true并使用已有标签。本地`npm run build`继续默认dev；下载客户端的Python/KMH运行准备遵循根README，`OBSERVER_PROJECT_ROOT`可选择已准备的工作区。当前流程沿用现有Apple签名配置，产物为macOS Apple Silicon客户端ZIP。
+
+```sh
+git push origin main
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+源码入口：`src/release-artifacts.ts`。检查命令：`npm run release:check-tag -- --tag v0.2.0`，`npm run release:verify -- --tag v0.2.0`；`release:archive`先核验再压缩回读。首次配置与证据见[GitHub Release任务](../docs/spec/screen-observer-p0/tasks/task-github-release.md)。

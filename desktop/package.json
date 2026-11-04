@@ -1,6 +1,6 @@
 {
   "name": "x-scening-desktop",
-  "version": "0.1.26",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -19,7 +19,10 @@
     "contracts": "node scripts/generate-contracts.mjs",
     "contracts:check": "node scripts/generate-contracts.mjs --check",
     "package": "npm run build",
-    "build:publish": "node --import tsx src/version-check/build.ts --mode publish"
+    "build:publish": "node --import tsx src/version-check/build.ts --mode publish",
+    "release:check-tag": "node --import tsx src/release-artifacts.ts check-tag",
+    "release:verify": "node --import tsx src/release-artifacts.ts verify",
+    "release:archive": "node --import tsx src/release-artifacts.ts archive"
   },
   "build": {
     "appId": "local.x-scening.desktop",
@@ -68,6 +71,7 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.1",
-    "vite": "8.3.5"
+    "vite": "8.3.5",
+    "@electron/asar": "3.4.1"
   }
 }

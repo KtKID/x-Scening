@@ -37,6 +37,7 @@ browser/
 /desktop/.cache/
 /desktop/out/
 /desktop/release/
+/desktop/release-assets/
 
 # 临时验证数据
 /tmp/

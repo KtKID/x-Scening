@@ -160,10 +160,10 @@ function shutdownClient(): Promise<void> {
       const failures = results.flatMap((result) =>
         result.status === 'rejected'
           ? [
-            result.reason instanceof Error
-              ? result.reason.message
-              : String(result.reason),
-          ]
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+            ]
           : [],
       );
       if (failures.length) throw new Error(failures.join('\n'));
@@ -178,11 +178,11 @@ const restartLocalClient = createLocalClientRestart(projectRoot, runningBuild, {
   relaunch: (options) =>
     process.platform === 'darwin'
       ? scheduleMacRestart(
-        localClientPaths(projectRoot).app,
-        projectRoot,
-        options.args,
-        configPath,
-      )
+          localClientPaths(projectRoot).app,
+          projectRoot,
+          options.args,
+          configPath,
+        )
       : app.relaunch(options),
   quit: () => app.quit(),
 });

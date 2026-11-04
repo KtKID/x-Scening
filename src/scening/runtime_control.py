@@ -1,7 +1,6 @@
 """同home采集进程的本地控制；线程只管理意图，正式数据仍由调度线程提交。"""
 from contextlib import contextmanager
 from datetime import datetime
-import json
 import os
 from pathlib import Path
 import socketserver

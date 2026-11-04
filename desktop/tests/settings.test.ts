@@ -234,7 +234,15 @@ await test('每日时间：旧配置补齐、字符串草稿与真实保存', as
     await writeFile(configPath, document.toString());
     const original = await readFile(configPath, 'utf8');
     const snapshot = await service.read();
-    assert.equal(snapshot.config.dailyReview.scheduledTime, '03:00');
+    const defaults = parseDocument(
+      await readFile(path.join(root, 'observer.yaml'), 'utf8'),
+    );
+    const rawDefaults: unknown = defaults.toJS();
+    const dailyDefaults = EditableConfigSchema.parse(rawDefaults).dailyReview;
+    assert.equal(
+      snapshot.config.dailyReview.scheduledTime,
+      dailyDefaults.scheduledTime,
+    );
     assert.equal(await readFile(configPath, 'utf8'), original);
     const draft = settingsDraft(snapshot.config);
     draft['dailyReview.scheduledTime'] = '04:15';

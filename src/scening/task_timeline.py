@@ -3,10 +3,9 @@ import argparse,fcntl,hashlib,json,os,signal,sys,tempfile
 from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 import yaml
-from scening.task_models import TaskProposal,MultiTaskProposal,DayTasks,TimelineReadReply,TASK_TITLE_MAX_CHARS
-from scening.task_store import read_activities,read_tasks,atomic_save,save_tasks,digest,day_key
+from scening.task_models import MultiTaskProposal,DayTasks,TimelineReadReply,TASK_TITLE_MAX_CHARS
+from scening.task_store import read_activities,read_tasks,save_tasks,digest,day_key
 from scening.task_time import project_day
 from scening.kmh_interpreter import KMHInterpreter
 from scening.observer_config import load_config

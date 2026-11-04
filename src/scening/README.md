@@ -266,6 +266,10 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 
 本次文档更新实际执行了四个入口的 `--help`（run.sh、截图索引、每日回顾、任务时间线），核对参数可达；图片占用通过文件元信息只读统计。运行命令的完整采集/模型操作本轮保持待验证，历史验证结果沿各 task 和报告引用。
 
+### 导入维护
+
+活动记录、任务整理、每日回顾和运行控制入口保留当前实现使用的导入；共享协议和保存函数由所属模块维护，测试直接从 `task_models`、`task_store` 引用。六项导入清理及相关回归见[维护任务](../../docs/task/task-unused-import-cleanup.md)。
+
 ## 代码说明
 
 覆盖本目录全部 22 个 Python 文件；目录内目前为平铺模块。根目录 `run.sh`、`scripts/`、测试、桌面客户端和外部 KMH 作为调用方或依赖引用。文件级取舍沿用对应设计记录；依据不足的整体设计理由集中列于“待确认”。
@@ -674,7 +678,8 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 
 ## 文档变更
 
-- 2026-11-04：新增dev/publish构建路径与用户目录展开，用户配置首次创建及后续保留见[发布模式任务](../../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)，验证进行中。
+- 2026-11-05：清理四个模块的六个多余导入，将任务测试中的协议与保存函数改为直接引用所属模块；[维护任务](../../docs/task/task-unused-import-cleanup.md)记录 123 项测试，121 项通过、2 项配置基线失败。
+- 2026-11-04：新增dev/publish构建路径与用户目录展开，用户配置首次创建及后续保留见[发布模式任务](../../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)，本地验收已完成。
 - 2026-11-04：修改运行入口与终端说明命名，候选日志 `mode` 统一为 `scening_candidate`；[命名清理任务](../../docs/spec/screen-observer-p0/tasks/task-source-naming-cleanup.md)已完成，42项回归通过后已撤销初始化提交并核对全部本地文件保全。
 - 2026-11-01：修复任务CLI信号同步取消造成的持锁死锁；统一取消意图与正常运行流回收，按预算组完整批次，保留按日期诊断。根因、反例及运行恢复见[修复报告](../../reports/fix/fix-report-20261101-task-organizer-lifecycle.md)。
 - 2026-10-30：按 x-feat-doc 整理功能、设计、使用方式、全部 22 个 Python 文件与关键函数，补齐相关 Spec 关系；记录截图节奏、全部运行数据路径及 16:18 图片占用快照。四个 CLI 的帮助入口已执行，链接与代码引用按当前文件核对。

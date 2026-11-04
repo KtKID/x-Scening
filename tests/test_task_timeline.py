@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from scening.observer_config import load_config
+from scening.task_models import TaskProposal
+from scening.task_store import atomic_save
 
 DAY='2026-10-30'
 def row(start='09:00',end='09:01',text='排查登录问题',app='Chrome'):
@@ -63,7 +65,7 @@ class TaskTests(unittest.TestCase):
         self.organize();doc=self.api.read_tasks(self.home,DAY)
         title='梳理Codex插件实现方案与ACP协议适配'
         doc.tasks[0].title=title;identity=doc.tasks[0].taskId
-        self.api.atomic_save(self.home/'task-timeline'/f'{DAY}.json',doc)
+        atomic_save(self.home/'task-timeline'/f'{DAY}.json',doc)
         self.rows.append(row('14:00','14:01','继续检查插件方案'));self.save()
         fresh=self.api.read_activities(self.home,DAY)[0][-1]
         self.organize(dict(tasks=[],assignments=[dict(activityId=fresh['id'],taskKey=identity)],progress=[]))
@@ -95,7 +97,7 @@ class TaskTests(unittest.TestCase):
         self.organize(p);v=self.view();self.assertEqual(v.progress[0].kind,'ai_reported');self.assertIsNone(v.progress[0].completionScope)
         stored=self.api.read_tasks(self.home,DAY)
         self.assertIsNone(stored.progress[0].completionScope)
-        self.assertNotIn('completionScope',self.api.TaskProposal.model_json_schema()['$defs']['ProposedProgress']['properties'])
+        self.assertNotIn('completionScope',TaskProposal.model_json_schema()['$defs']['ProposedProgress']['properties'])
         self.assertEqual(v.progress[0].evidence[0].excerpt,'排查登录问题')
 
     def test_T12_legacy_completion_is_hidden_and_original_file_stays_unchanged(self):
@@ -232,7 +234,7 @@ class TaskTests(unittest.TestCase):
             doc.progress.append(Progress(progressId=f'history-{index}',taskId=tid,text=f'历史阶段{index}：'+('已检查登录结果。'*150),kind='observed',completionScope=None,evidence=previous.evidence))
         history=[p.model_dump() for p in doc.progress]
         self.assertGreater(len(json.dumps(history,ensure_ascii=False)),self.config.taskTimeline.maxInputChars)
-        self.api.atomic_save(self.home/'task-timeline'/f'{DAY}.json',doc)
+        atomic_save(self.home/'task-timeline'/f'{DAY}.json',doc)
         self.rows.extend([row('14:00','14:01','继续验证登录异常','Editor'),row('15:00','15:01','设计音乐播放器的播放列表','Chrome')]);self.save()
         records,_=self.api.read_activities(self.home,DAY);fresh=records[-2:]
         outer=self

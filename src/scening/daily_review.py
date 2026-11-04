@@ -8,7 +8,7 @@ from scening.kmh_interpreter import KMHInterpreter
 from scening.runtime_logging import log_event
 from scening.daily_review_report import (
     DailyReview, DailyReviewReady, DailyReviewEmpty, DailyReviewError,
-    DailyReviewReply, validate_review_day, generate_report,
+    DailyReviewReply, validate_review_day,
 )
 
 

@@ -84,6 +84,14 @@ await test('publish: dev沿用项目目录，读取期间保持用户目录零�
       cacheRoot: path.join(root, 'desktop/.cache'),
       logRoot: path.join(root, 'logs'),
     });
+    const explicit = await prepareRuntimePaths(
+      root,
+      'dev',
+      '~/custom.yaml',
+      undefined,
+      user,
+    );
+    assert.equal(explicit.configPath, path.join(user, 'custom.yaml'));
     await assert.rejects(readFile(path.join(user, '.scening/observer.yaml')));
   }));
 

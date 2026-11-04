@@ -1,5 +1,5 @@
 """活动与总结的结构定义、每日JSON校验和原子保存。"""
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path, PurePosixPath

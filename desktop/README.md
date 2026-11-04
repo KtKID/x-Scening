@@ -83,7 +83,7 @@ publish首次启动在`~/.scening/observer.yaml`保存用户配置，默认活�
 
 ## 更新记录
 
-- 2026-11-04：新增dev/publish构建模式、用户配置首次创建与`~`路径支持；[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)验证中。
+- 2026-11-04：新增dev/publish构建模式、用户配置首次创建与`~`路径支持；[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)已完成本地验收，Python58项、桌面99项及双模式编译通过。
 
 - 2026-11-04：整理页改为三节点流水线布局，沿用棕色按钮/进度条和既有任务调度，执行与验证见[流水线布局task](../docs/spec/screenshot-analysis-backfill/tasks/task-backfill-pipeline.md)。
 

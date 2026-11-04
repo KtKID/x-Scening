@@ -1,0 +1,45 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+/home/
+/logs/
+node_modules/
+dist/
+*.zip
+browser/
+
+# 本地讨论、需求、设计、研究及交接过程资料
+/docs/task/
+/docs/spec/
+/docs/research/
+/docs/design/
+/docs/handoff/
+/docs/prototypes/
+
+# Logo设计过程的对比、预览和候选稿；正式Logo源稿随项目保留
+/docs/logo/**/comparison.*
+/docs/logo/**/smile-preview.*
+/docs/logo/**/secening-eye-timeline-a.svg
+/docs/logo/**/secening-eye-timeline-b.svg
+
+# 技能开发工作区、评测过程与生成结果
+/skills/*-workspace/
+
+# 本地 agent 工具与会话状态
+.video_agent/
+.zcode/
+
+# 默认截图运行数据
+/data/snapshot-v1/
+
+# 桌面客户端的项目内环境与生成物
+/desktop/.cache/
+/desktop/out/
+/desktop/release/
+
+# 临时验证数据
+/tmp/
+
+# 本地运行、测试、审查及验证报告与证据
+/reports/

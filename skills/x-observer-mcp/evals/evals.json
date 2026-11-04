@@ -1,0 +1,31 @@
+{
+  "skill_name": "x-scening-mcp",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我在另一台 Agent 客户端接入本机 x-scening。给出连接配置，列出当前全部 MCP 业务接口和协议方法，并说明如何获取 2026-11-02 到 2026-11-03 的全部活动正文、任务关联与周期总结。unknown 的活动也要保留；损坏日期和截断结果要说明处理方式。给我可直接填写路径的配置和调用参数即可，本轮只设计调用方案。",
+      "expected_output": "列出三个业务工具及 stdio 协议方法，提供同配置同 home 的连接模板；正确选择两个只读范围工具并给出参数，读取 analysis/summary/timeline，保留 unknown 正文并检查 issues/unreadableDays/截断。",
+      "files": [],
+      "expectations": [
+        "完整列出三个业务工具，使用 stdio 连接并保证与生产端同一配置及 home。",
+        "列出 initialize、notifications/initialized、ping、tools/list、tools/call 协议方法。",
+        "两个范围工具均给出 2026-11-02 至 2026-11-03 的 startDate/endDate 参数。",
+        "指出活动正文 analysis、周期正文 summary 与 timeline 的读取位置，并保留 unknown 活动正文。",
+        "分别检查 issues、unreadableDays，并给出截断结果完整读取和覆盖范围处理。"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "我要获取 2026-11-03 的每日回顾完整内容和来源信息，再给我一份用户明确要求重新生成时的调用示例。请解释缓存缺失、只有部分活动分析、ready/empty/error 三态和错误的处理。另外确认通过当前 MCP 能否拿到原截图、observation、采集开关和增量游标。本轮只设计调用方案。",
+      "expected_output": "读取 generate_daily_review(day, refresh=false) 的 review.response 与review 的全部七个字段（含正文）；缓存缺失可能生成并写状态，refresh=true 用于重生；部分活动可生成；解释协议和错误，按真实三工具声明界定图片、控制和游标能力。",
+      "files": [],
+      "expectations": [
+        "给出 generate_daily_review 的 day 和 refresh=false/true 调用，区分读取与用户明确要求重新生成。",
+        "指出 review.response 正文，保留 day/generatedAt/sourceCount/sourceActivityCount/generationId/sourceHash/response 全部字段。",
+        "说明缓存缺失可调用模型、保存报告和状态，已有缓存按保存内容返回。",
+        "说明只有部分活动分析的日期也可生成，并解释 ready/empty/error 与 isError。",
+        "按当前三个工具边界说明原图、observation、采集控制与增量游标的可用性。"
+      ]
+    }
+  ]
+}

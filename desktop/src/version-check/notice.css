@@ -1,0 +1,27 @@
+.local-build-notice {
+  margin: 0 28px 12px;
+  padding: 9px 12px;
+  border: 1px solid #dfc58b;
+  border-radius: 7px;
+  background: #f5e8c8;
+  color: #80612d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.local-build-notice button {
+  margin-left: 12px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.local-build-notice [role='alert'] {
+  display: block;
+}
+.local-build-notice button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

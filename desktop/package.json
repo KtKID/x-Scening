@@ -1,0 +1,73 @@
+{
+  "name": "x-scening-desktop",
+  "version": "0.1.25",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "setup:electron": "node node_modules/electron/install.js",
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "node --import tsx src/version-check/build.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "format:check": "prettier . --check",
+    "format": "prettier . --write",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run contracts:check",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "tsx tests/electron.e2e.ts",
+    "contracts": "node scripts/generate-contracts.mjs",
+    "contracts:check": "node scripts/generate-contracts.mjs --check",
+    "package": "npm run build",
+    "build:publish": "node --import tsx src/version-check/build.ts --mode publish"
+  },
+  "build": {
+    "appId": "local.x-scening.desktop",
+    "productName": "x-scening",
+    "executableName": "Observer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "resources/icons/app-icon.icns",
+      "target": "dir",
+      "identity": null,
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "dir"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Utility"
+    }
+  },
+  "dependencies": {
+    "lucide-react": "1.62.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "eslint": "9.39.5",
+    "playwright": "1.64.1",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5"
+  }
+}

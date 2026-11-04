@@ -1,0 +1,258 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import {
+  mkdir,
+  lstat,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { z } from 'zod';
+import { resolveBuildMode } from '../runtime-mode';
+import { LOCAL_BUILD_MARKER, LocalBuildInfoSchema } from './protocol';
+import type { LocalBuildInfo } from './protocol';
+import { localClientPaths } from './paths';
+
+function isCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
+/** 独占本地构建；上次进程退出后清理遗留锁，活动构建保持独占。 */
+async function lockBuild(file: string) {
+  await mkdir(path.dirname(file), { recursive: true });
+  const create = async () => {
+    const lock = await open(file, 'wx');
+    try {
+      await lock.writeFile(JSON.stringify({ pid: process.pid }));
+      return lock;
+    } catch (error: unknown) {
+      await lock.close();
+      await rm(file, { force: true });
+      throw error;
+    }
+  };
+  try {
+    return await create();
+  } catch (error: unknown) {
+    if (!isCode(error, 'EEXIST')) throw error;
+    const owner = z
+      .strictObject({ pid: z.number().int().positive() })
+      .parse(JSON.parse(await readFile(file, 'utf8')));
+    try {
+      process.kill(owner.pid, 0);
+    } catch (probe: unknown) {
+      if (isCode(probe, 'ESRCH')) {
+        await rm(file);
+        return create();
+      }
+    }
+    throw new Error('已有客户端构建正在运行，请等待该次构建完成。');
+  }
+}
+
+async function writeMarker(file: string, build: LocalBuildInfo): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(build)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    await rename(temporary, file);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/** 编译、打包、固定入口发布成功后写标记；失败恢复上一份应用。
+ * root为项目根，compile与assemble分别生成out及指定暂存目录中的完整应用。
+ * 仅完整且含本轮编译结果的应用可以发布；正式记录保持原有写入归属。
+ */
+export async function publishLocalBuild(
+  root: string,
+  build: LocalBuildInfo,
+  compile: (build: LocalBuildInfo) => Promise<void>,
+  assemble: (output: string) => Promise<void>,
+): Promise<void> {
+  const validated = LocalBuildInfoSchema.parse(build);
+  const cache = path.join(root, 'desktop/.cache');
+  const lockPath = path.join(cache, 'client-build.lock.json');
+  const lock = await lockBuild(lockPath);
+  const staging = path.join(cache, 'client-package-stage');
+  const previous = path.join(cache, 'client-package-previous');
+  const target = localClientPaths(root);
+  const staged = localClientPaths(root, staging);
+  const backup = localClientPaths(root, previous);
+  try {
+    await rm(staging, { recursive: true, force: true });
+    await compile(validated);
+    const output = path.join(root, 'desktop/out');
+    const compiled = await Promise.all(
+      ['main/index.js', 'preload/index.cjs', 'renderer/index.html'].map(
+        (file) => readFile(path.join(output, file)),
+      ),
+    );
+    if (
+      !compiled[0]?.includes(Buffer.from(validated.buildId)) ||
+      compiled.some((content) => !content.toString().trim())
+    )
+      throw new Error('本轮客户端编译产物尚未完整就绪。');
+    await assemble(staging);
+    const archive = await readFile(staged.archive);
+    if (
+      !(await stat(staged.executable)).isFile() ||
+      !compiled.every((content) => archive.includes(content))
+    )
+      throw new Error('应用包中的客户端产物与本轮编译结果不一致。');
+    await writeMarker(staged.info, validated);
+    // 首次改名沿用原应用目录身份；旧入口软链接让运行中的旧版继续更新。
+    if (process.platform === 'darwin') {
+      try {
+        await stat(target.app);
+      } catch (error: unknown) {
+        if (!isCode(error, 'ENOENT')) throw error;
+        const legacy = path.join(path.dirname(target.app), 'Observer.app');
+        try {
+          if ((await lstat(legacy)).isDirectory()) {
+            await rename(legacy, target.app);
+            await symlink(path.basename(target.app), legacy);
+          }
+        } catch (migration: unknown) {
+          if (!isCode(migration, 'ENOENT')) throw migration;
+        }
+      }
+    }
+    await mkdir(path.dirname(target.payload), { recursive: true });
+    await rm(previous, { recursive: true, force: true });
+    await mkdir(path.dirname(backup.payload), { recursive: true });
+    let previousMoved = false;
+    let promoted = false;
+    try {
+      try {
+        await rename(target.payload, backup.payload);
+        previousMoved = true;
+      } catch (error: unknown) {
+        if (!isCode(error, 'ENOENT')) throw error;
+      }
+      await rename(staged.payload, target.payload);
+      promoted = true;
+      await writeMarker(path.join(root, LOCAL_BUILD_MARKER), validated);
+    } catch (error: unknown) {
+      try {
+        if (promoted)
+          await rm(target.payload, { recursive: true, force: true });
+        if (previousMoved) await rename(backup.payload, target.payload);
+      } catch (recovery: unknown) {
+        throw new AggregateError(
+          [error, recovery],
+          '客户端发布失败，恢复上一份应用时也发生错误。',
+        );
+      }
+      throw error;
+    }
+  } finally {
+    try {
+      await rm(staging, { recursive: true, force: true });
+    } finally {
+      try {
+        await lock.close();
+      } finally {
+        await rm(lockPath, { force: true });
+      }
+    }
+  }
+}
+
+async function runTool(
+  desktop: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd: desktop,
+      env,
+      stdio: 'inherit',
+    });
+    child.once('error', reject);
+    child.once('exit', (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`客户端构建退出码：${String(code)}`)),
+    );
+  });
+}
+
+/** 唯一手动构建入口：完成应用发布后才向运行客户端发布成功标记。 */
+async function buildLocalClient(): Promise<void> {
+  const { values } = parseArgs({ options: { mode: { type: 'string' } } });
+  const mode = resolveBuildMode({
+    ...process.env,
+    ...(values.mode === undefined ? {} : { OBSERVER_BUILD_MODE: values.mode }),
+  });
+  const root = path.resolve(
+    fileURLToPath(new URL('../../..', import.meta.url)),
+  );
+  const desktop = path.join(root, 'desktop');
+  const metadata: unknown = JSON.parse(
+    await readFile(path.join(desktop, 'package.json'), 'utf8'),
+  );
+  const { version } = z
+    .object({ version: LocalBuildInfoSchema.shape.version })
+    .parse(metadata);
+  const build = LocalBuildInfoSchema.parse({
+    buildId: randomUUID(),
+    version,
+    createdAt: new Date().toISOString(),
+  });
+  await publishLocalBuild(
+    root,
+    build,
+    (info) =>
+      runTool(
+        desktop,
+        [
+          path.join(desktop, 'node_modules/electron-vite/bin/electron-vite.js'),
+          'build',
+        ],
+        {
+          ...process.env,
+          OBSERVER_BUILD_MODE: mode,
+          OBSERVER_LOCAL_BUILD_INFO: JSON.stringify(info),
+        },
+      ),
+    async (output) => {
+      await runTool(
+        desktop,
+        [
+          path.join(desktop, 'node_modules/electron-builder/cli.js'),
+          '--dir',
+          `--config.electronDist=${path.join(desktop, 'node_modules/electron/dist')}`,
+          `--config.directories.output=${output}`,
+        ],
+        process.env,
+      );
+      // 打包器以内部可执行名生成包名；发布前统一为对外产品名称。
+      if (process.platform === 'darwin') {
+        const app = localClientPaths(root, output).app;
+        await rename(path.join(path.dirname(app), 'Observer.app'), app);
+      }
+    },
+  );
+  console.log(
+    `客户端已就绪：v${build.version} · ${mode} · ${localClientPaths(root).app}`,
+  );
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  await buildLocalClient();

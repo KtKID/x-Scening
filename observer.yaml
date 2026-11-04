@@ -1,0 +1,192 @@
+# x-scening 运行配置：全部可调数值由本文件提供默认值。
+# 修改后重新启动生效；显式命令行参数临时覆盖所选配置。
+# 相对 home / kmhLauncher 基于本配置文件所在目录解析。
+# 缓存频率、操作结束等待、操作选图周期与独立观察周期分别配置。
+
+# dev数据根目录，保存每日记录、总结和KMH运行数据；publish路径覆盖见observer.publish.yaml。正式JPEG由screenshotDir独立保存。支持~用户目录，相对路径基于本配置所在目录；开发日志保存在项目logs目录。修改后重启生效。
+home: ./home
+
+# 桌面客户端的状态与本地记录自动更新间隔，单位秒；有限正数。刷新按钮可随时手动重读。
+desktop:
+  # 状态和活动记录的自动重读间隔，单位秒；有限正数。
+  refreshIntervalSeconds: 2.0
+
+# 任务类型预设；名称保持唯一、非空且为单行，至少保留一项。桌面设置可增删并保存；下一次开始采集时作为模型候选列表读取，每条活动可选择多个类型。
+taskTypes:
+  - 工作
+  - 学习
+  - 娱乐
+  - 游戏
+
+# 截图保存目录，正式图片直接保存于此；相对路径基于本配置文件，修改后重启生效。
+screenshotDir: ./data/snapshot-v1
+
+# 消费候选并处理活动的最小开始间隔，秒；正数。采集线程独立按scening.captureFps更新。修改后重启生效。
+sampleIntervalSeconds: 5
+
+# 活动总结周期，单位秒，须为有限正数。从脚本启动时刻计时，1800秒为30分钟；当前轮完成后检查是否到期。修改后重启生效。
+summaryIntervalSeconds: 1800
+
+# 本次活动入口最多消费的候选轮数；0持续运行。修改后重启生效。
+captureCount: 0
+
+# 判断画面变化的归一化平均RGB差阈值，取值须大于0且至多为1。达到阈值重新分析，低于阈值可延长同日同应用活动；调大可减少变化触发的调用。修改后重启生效。
+differenceThreshold: 0.01
+
+# 实时入口等待首份有效候选的超时，单位秒。须为有限正数。修改后重启生效。
+captureTimeoutSeconds: 15
+
+# 每次KMH图片分析或总结调用的最长等待时间，单位秒，须为有限正数。超时开始终止模型进程，并记录失败。修改后重启生效。
+modelTimeoutSeconds: 120
+
+# 模型超时后发送SIGTERM的退出等待时间，单位秒，须为有限正数。等待结束仍在运行时发送SIGKILL并回收进程。修改后重启生效。
+terminationGraceSeconds: 5
+
+# 本地控制与主动取消预算；旧配置省略该块时读取项目YAML默认值。
+control:
+  # 一次控制请求等待完成回执的总秒数，有限正数；为1秒界面响应留出余量。
+  timeoutSeconds: 0.8
+  # 用户取消后给KMH启动器转发退出信号的宽限秒数，有限正数。
+  cancelGraceSeconds: 0.1
+  # 取消事件、控制监听和进程组回收的检查间隔，秒，有限正数。
+  pollSeconds: 0.01
+
+# 图片分析提示词要求的最大中文字数，须为正整数。该值用于向模型提出篇幅要求，返回正文完整保存。修改后重启生效。
+analysisMaxChars: 200
+
+# 图片批分析与派生拼图；当前收满三张才发送，修改后重启生效。
+analysis:
+  # 每次分析收集的候选数；整数2至3，当前按用户要求使用3，未满批保持等待。
+  batchSize: 3
+  # 每帧缩放后的最大宽度，像素；正整数，保持比例且保持小图原尺寸。
+  frameMaxWidth: 1440
+  # 每帧缩放后的最大高度，像素；正整数，竖屏同样受此边界约束。
+  frameMaxHeight: 810
+  # 每帧上方时间标签的高度，像素；正整数，至少容纳labelFontSize。
+  labelHeight: 36
+  # 时间、间隔及屏幕标签的字号，像素；正整数。
+  labelFontSize: 18
+  # 派生拼图的JPEG质量，整数1至95；原始截图沿用scening.jpegQuality。
+  jpegQuality: 85
+  # 单张拼图的像素预算，正整数；默认与当前KMH附件预算一致。
+  maxImagePixels: 4194304
+  # 同批分析失败的退避基数，秒；正数，第n次重试等待n×基数（默认10/20/30递增）。
+  retryIntervalSeconds: 10
+  # 同批失败后的自动重试次数上限，非负整数；耗尽后队列blocked，需重新开启分析或手动补齐失败批，0表示失败一次即blocked。
+  maxRetries: 3
+
+# 活动总结提示词要求的最大中文字数，须为正整数。该值用于向模型提出篇幅要求，返回正文完整保存。修改后重启生效。
+summaryMaxChars: 200
+
+# 每日回顾独立汇总当天周期总结，点击生成，按日保存；修改后下次生成生效。
+dailyReview:
+  # 每日回顾提示词要求的最大中文字数，正整数；完整模型回复按原文保存。
+  maxChars: 600
+  # 每日自动生成时刻，本地24小时制HH:mm；为前一天生成，设置保存后立即重排。
+  scheduledTime: "00:17"
+  # 每日报告自动尝试总数，正整数，包含首次；失败次数跨重启保留。
+  maxAutoAttempts: 3
+  # 每次自动失败后等待的秒数，有限正数；手动重试单次执行。
+  retryIntervalSeconds: 60
+  # 时钟变化和错过定时的检查间隔，秒，有限正数；启动/唤醒/保存也立即检查。
+  checkIntervalSeconds: 30
+
+# 外部KMH启动脚本的位置；相对路径基于本配置文件所在目录。调用前检查脚本文件，Node通过启动环境的PATH查找。修改后重启生效。
+kmhLauncher: ../kongming-os/scripts/kmh.mjs
+
+# KMH调用使用的profile名称，允许英文字母、数字、下划线和连字符。scening通过专用读图/提交工具返回结构化结果，默认minimax-cn / MiniMax-M3；API Key填写在home/kmh/.env的MINIMAX_CN_API_KEY。模型与思考等级由KMH profile维护，修改后重启生效。
+kmhProfile: scening
+
+# 采集、选屏、选图与JPEG保存策略；每个子参数紧邻中文说明。修改后重启生效。
+scening:
+  # 普通显示器每秒更新各屏缓存的目标轮数；正数。 修改后重启生效。
+  captureFps: 5.0
+  # 任一屏命中高分辨率条件后每秒缓存更新目标轮数；正数。 修改后重启生效。
+  highResolutionFps: 3.0
+  # MSS报告的屏幕宽度严格大于此像素值时降低频率；正整数。 修改后重启生效。
+  highResolutionWidth: 2560
+  # MSS报告的屏幕高度严格大于此像素值时降低频率；正整数。 修改后重启生效。
+  highResolutionHeight: 1600
+  # 重新检查连接屏幕布局的间隔，秒；正数。 修改后重启生效。
+  monitorRefreshSeconds: 2.0
+  # 最后一次点击后等待多久保存after图，秒；正数。 修改后重启生效。
+  clickDebounceSeconds: 2.0
+  # 连续键盘输入结束的静默等待，秒；正数。 修改后重启生效。
+  keyboardIdleSeconds: 2.0
+  # 连续滚动记录的最小时间间隔，秒；正数。 修改后重启生效。
+  scrollDebounceSeconds: 0.5
+  # 时间较近的滚动事件需达到的指针位移，像素；非负数。 修改后重启生效。
+  scrollMinPointerDistance: 5.0
+  # 整理已完成操作并选图的间隔，秒；正数。 修改后重启生效。
+  actionIntervalSeconds: 20.0
+  # 进入操作选图需要的新增键鼠事件数量；正整数。 修改后重启生效。
+  minRawEvents: 2
+  # 上一操作after与下一操作before的RGB平方差阈值；正数。 修改后重启生效。
+  segmentDifferenceThreshold: 8000.0
+  # 标记稳定片段所需连续低差异比较次数；正整数。 修改后重启生效。
+  stableComparisonCount: 2
+  # 独立定时观察间隔，秒；正数，启动先观察首帧。 修改后重启生效。
+  observationIntervalSeconds: 60.0
+  # 系统无输入活动达到该秒数后暂停抓屏；正数。 修改后重启生效。
+  sensingIdleSeconds: 300.0
+  # 定时观察的近期活动窗口使用周期乘以此数；正数。 修改后重启生效。
+  recentActivityMultiplier: 2.0
+  # 近期活动窗口也至少为观察周期加此秒数；非负数。 修改后重启生效。
+  recentActivityPaddingSeconds: 5.0
+  # 正式候选和事件截图的JPEG编码质量，1至95；保持采集分辨率。 修改后重启生效。
+  jpegQuality: 70
+  # 等待三帧分析入口消费的候选数量上限；正整数，过载保留较新候选并记中断。 修改后重启生效。
+  candidateQueueSize: 6
+  # 内存操作和待接收输入队列的容量上限；大于1的整数。 修改后重启生效。
+  maxStoredActions: 100
+  # 停止时等待采集线程与监听器退出的最长秒数；正数，同时受control总预算约束。 修改后重启生效。
+  shutdownTimeoutSeconds: 5.0
+  # 连续滚动记录的平均每秒数量上限；正数。修改后重启生效。
+  scrollMaxEventsPerSecond: 10.0
+  # 滚动会话从首次事件计算的重置时长，秒；正数。修改后重启生效。
+  scrollResetSeconds: 2.0
+  # 有效滚轮事件后等待多久保存after图，单位秒；有限非负数，0表示随后的采集轮立即完成；继续接受滚轮会重新计时。
+  scrollAfterSeconds: 0.0
+  # 缺图、坏图或图片尺寸不同的替代比较分数；有限正数，建议高于segmentDifferenceThreshold，使未知衔接形成分段。
+  missingImageDifference: 100000.0
+
+# 任务时间线：按需文字整理与连续采样估算
+taskTimeline:
+  # 新语义整理最短间隔，秒，正数
+  minOrganizeIntervalSeconds: 20
+  # 每批活动条数，正整数；单轮输入仍受maxInputChars约束，超限自动缩减
+  maxActivitiesPerBatch: 6
+  # 完整文字输入字符上限，正整数
+  maxInputChars: 48000
+  # 整理失败重试间隔，秒，正数
+  retryIntervalSeconds: 300
+  # 同来源失败批次尝试上限，正整数
+  maxAttemptsPerRevision: 2
+  # 连续采样最大间隔，秒，正数
+  maxContinuityGapSeconds: 90
+
+# 截图敏感闸门：候选发布与补分析提交前本地判定，命中帧丢弃、不落正式盘、不进拼图
+privacy:
+  # 总开关；false时采集与补分析恢复直发行为，旧配置缺少privacy块等同false
+  enabled: true
+  # L0应用黑名单：bundleId精确或前缀匹配，或应用名精确匹配；命中不做OCR直接拦截
+  sensitiveApps:
+    - com.1password.1password
+    - com.apple.Passwords
+    - com.tencent.xinWeChat
+  # L0应用名或bundleId包含匹配的关键词，大小写不敏感；留空仅用上面的精确名单
+  appKeywords: []
+  # L2内容判定：本地Vision OCR fast + 秘密格式规则；false时仅L0生效
+  ocrEnabled: true
+  # 长混合字符token最短长度，正整数；需同时含大小写与数字才命中
+  longTokenMin: 20
+  # 折行密钥体单侧最短长度，正整数
+  splitTokenMin: 12
+  # 折行拼接后最短总长，正整数；应不小于splitTokenMin的2倍
+  splitJoinedMin: 24
+  # 银行卡滑窗（品牌前缀+Luhn）开关
+  cardCheck: true
+  # 身份证结构+校验位（末位含X/x）开关
+  idCheck: true
+  # 凭证标签邻近（password/密钥/卡号等+分隔符+形似凭证的值）开关
+  labelCheck: true

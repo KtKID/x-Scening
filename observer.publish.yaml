@@ -1,0 +1,4 @@
+# GitHub Release构建的默认路径覆盖；其余参数统一沿用observer.yaml。
+# ~在运行时展开为当前用户主目录；用户配置首次创建后保留后续修改。
+home: ~/.scening
+screenshotDir: ~/.scening/snapshots

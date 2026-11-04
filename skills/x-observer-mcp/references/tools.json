@@ -1,0 +1,72 @@
+{
+  "tools": [
+    {
+      "name": "list_period_summaries",
+      "description": "获取指定日期范围内已保存的全部半小时周期总结（含窗口、正文、活动时间表与缺口），按窗口开始时间升序返回；范围内无总结文件的日期跳过，损坏日期单独报告。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "起始日期，含当日，格式YYYY-MM-DD"
+          },
+          "endDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "结束日期，含当日，格式YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "generate_daily_review",
+      "description": "生成或读取指定日期的每日温馨回顾；已保存回顾默认直接返回，refresh为true时重新生成，回复为就绪/空/失败协议JSON。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "回顾日期，格式YYYY-MM-DD"
+          },
+          "refresh": {
+            "type": "boolean",
+            "default": false,
+            "description": "true时忽略缓存重新生成"
+          }
+        },
+        "required": [
+          "day"
+        ]
+      }
+    },
+    {
+      "name": "list_task_associations",
+      "description": "获取指定日期范围内每条活动的任务关联：status为linked（已关联，tasks列出taskId/title/action）、none（已整理且明确无关联，tasks为null）、unknown（尚未整理或来源已变化）；附任务目录与三态计数。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "起始日期，含当日，格式YYYY-MM-DD"
+          },
+          "endDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "结束日期，含当日，格式YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    }
+  ]
+}

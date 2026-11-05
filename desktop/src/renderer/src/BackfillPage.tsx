@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, Images, Network, ScanLine } from 'lucide-react';
+import {
+  CalendarDays,
+  FolderOpen,
+  Images,
+  Network,
+  ScanLine,
+} from 'lucide-react';
 import type { z } from 'zod';
 import { localDay, moveDay } from '../../shared/protocol';
 import type { BackfillStatus, ObserverBridge } from '../../shared/protocol';
@@ -61,14 +67,73 @@ function associationLabel(
   return '已同步';
 }
 
-/** 独立日期与单操作按钮；隐藏后保留选择，作业由主进程继续管理。 */
+/** 显示当前配置的截图根目录，打开动作独立于补分析作业。 */
+function ScreenshotDirectory({
+  directory,
+}: {
+  directory: ObserverBridge['screenshotDirectory'];
+}) {
+  const [location, setLocation] = useState('');
+  const [issue, setIssue] = useState('');
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    let current = true;
+    directory('read')
+      .then((value) => {
+        if (current) setLocation(value);
+      })
+      .catch(() => {
+        if (current) setIssue('截图保存路径暂不可用。');
+      });
+    return () => {
+      current = false;
+    };
+  }, [directory]);
+  const open = (): void => {
+    setOpening(true);
+    setIssue('');
+    directory('open')
+      .then(setLocation)
+      .catch(() => setIssue('无法打开截图保存目录，请确认目录存在且可访问。'))
+      .finally(() => setOpening(false))
+      .catch(console.error);
+  };
+  return (
+    <div className="backfill-location">
+      <div className="backfill-location-copy">
+        <p>截图保存路径</p>
+        {location && <code>{location}</code>}
+        {issue && (
+          <p className="muted" role="alert">
+            {issue}
+          </p>
+        )}
+      </div>
+      <button
+        type="button"
+        className="backfill-button backfill-location-button"
+        disabled={!location || opening}
+        aria-busy={opening}
+        onClick={open}
+      >
+        <FolderOpen size={16} aria-hidden="true" />
+        打开保存目录
+      </button>
+    </div>
+  );
+}
+
+/** 独立日期与补分析按钮；隐藏后保留选择，作业由主进程继续管理。 */
 export function BackfillPage({
   bridge,
   active,
   refreshIntervalSeconds,
   association,
 }: {
-  bridge: Pick<ObserverBridge, 'readBackfill' | 'controlBackfill'>;
+  bridge: Pick<
+    ObserverBridge,
+    'readBackfill' | 'controlBackfill' | 'screenshotDirectory'
+  >;
   active: boolean;
   refreshIntervalSeconds: number | null;
   association: Association;
@@ -406,6 +471,7 @@ export function BackfillPage({
           {buttonLabel}
         </button>
       </div>
+      {active && <ScreenshotDirectory directory={bridge.screenshotDirectory} />}
       <div className="backfill-notes">
         <p className="muted backfill-note">
           分析结果保存到截图原日期，切换页面后会继续处理。

@@ -319,6 +319,8 @@ class SensingCollector:
                 self.store.discard(saved)
                 self._status('privacy_blocked', '敏感内容已拦截：候选不发布、不落正式盘',
                              reason=verdict.reason, hits=list(verdict.hits),
+                             hitDetails=list(verdict.hit_details), display=saved.display.index,
+                             captureKind=reason,
                              app=saved.app, capturedAt=saved.at.isoformat())
                 return
         if self._stop.is_set():

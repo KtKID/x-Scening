@@ -111,6 +111,70 @@ async function untilReady(control: CaptureController): Promise<void> {
   assert.fail('采集应就绪');
 }
 
+await test('顶部保留保存信息与待拼图数量，完整路径留在原始日志', async () => {
+  await fixture(async (root) => {
+    const home = path.join(root, 'home');
+    const screenshot = path.join(home, '带空格的 截图', '2026-11-05_m1.jpg');
+    await mkdir(home, { recursive: true });
+    await writeFile(
+      path.join(home, 'progress.json'),
+      JSON.stringify([
+        {
+          stage: 'image_prepare',
+          result: 'saved',
+          screenshot,
+          originalSize: [2560, 1440],
+          display: 1,
+        },
+        {
+          stage: 'scening',
+          result: 'candidate',
+          screenshot,
+          message: '候选已选出',
+        },
+        { stage: 'analysis', result: 'started', mini: screenshot },
+        {
+          stage: 'analysis_batch',
+          result: 'pending',
+          pendingCount: 2,
+          batchSize: 3,
+        },
+      ]),
+    );
+    const control = new CaptureController(root);
+    const messages: string[] = [];
+    const unsubscribe = control.subscribe(({ capture }) => {
+      messages.push(capture.message);
+    });
+    try {
+      await control.start();
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (messages.some((message) => message.includes('2/3'))) break;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      assert.ok(
+        messages.some((message) =>
+          /候选 JPEG 已保存；原分辨率 \[2560, 1440\]；屏幕 1/.test(message),
+        ),
+      );
+      assert.ok(messages.some((message) => message.endsWith('KMH 分析中')));
+      assert.ok(
+        messages.some((message) => message.endsWith('分析待凑图：2/3')),
+      );
+      assert.ok(messages.every((message) => !message.includes('目标路径')));
+      assert.ok(messages.every((message) => !message.includes(screenshot)));
+    } finally {
+      unsubscribe();
+      await control.shutdown();
+    }
+    assert.ok(
+      (
+        await readFile(path.join(root, 'desktop/.cache/capture.log'), 'utf8')
+      ).includes(screenshot),
+    );
+  });
+});
+
 await test('C8 停止时选择仅截图，真实启动参数生效且相同选择保持PID', async () => {
   await fixture(async (root) => {
     const control = new CaptureController(root);

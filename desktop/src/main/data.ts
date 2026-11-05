@@ -46,6 +46,24 @@ async function readList<T>(
   }
 }
 
+/** 从当前配置解析数据位置，供日记录及截图目录操作共享。 */
+export async function readLocalLocations(configPath: string) {
+  const document = parseDocument(await readFile(configPath, 'utf8'), {
+    uniqueKeys: true,
+  });
+  if (document.errors.length > 0)
+    throw new Error(document.errors.map((error) => error.message).join('；'));
+  const raw: unknown = document.toJS();
+  const configured = LocationsSchema.parse(raw);
+  if (!configured.home.trim() || !configured.screenshotDir.trim())
+    throw new Error('数据目录应有内容');
+  return {
+    configPath,
+    home: resolveConfiguredPath(configPath, configured.home),
+    screenshotDir: resolveConfiguredPath(configPath, configured.screenshotDir),
+  };
+}
+
 /** 只读配置与完整的按日 JSON；活动和总结分别处理错误，保存操作保持零次。 */
 export async function readLocalDay(
   root: string,
@@ -63,24 +81,8 @@ export async function readLocalDay(
     locations: { configPath, home: '', screenshotDir: '' },
   };
   try {
-    const document = parseDocument(await readFile(configPath, 'utf8'), {
-      uniqueKeys: true,
-    });
-    if (document.errors.length > 0)
-      throw new Error(document.errors.map((error) => error.message).join('；'));
-    const raw: unknown = document.toJS();
-    const configured = LocationsSchema.parse(raw);
-    if (!configured.home.trim() || !configured.screenshotDir.trim())
-      throw new Error('数据目录应有内容');
-    const home = resolveConfiguredPath(configPath, configured.home);
-    snapshot.locations = {
-      configPath,
-      home,
-      screenshotDir: resolveConfiguredPath(
-        configPath,
-        configured.screenshotDir,
-      ),
-    };
+    snapshot.locations = await readLocalLocations(configPath);
+    const { home } = snapshot.locations;
     const [activities, summaries] = await Promise.all([
       readList(path.join(home, 'records', `${day}.json`), (value) => {
         const rows = z.array(z.unknown()).parse(value);

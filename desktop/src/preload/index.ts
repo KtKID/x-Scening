@@ -20,6 +20,8 @@ import {
   SaveSettingsSchema,
   BackfillQuerySchema,
   BackfillActionSchema,
+  ScreenshotDirectoryActionSchema,
+  ScreenshotDirectorySchema,
   BackgroundsReplySchema,
 } from '../shared/protocol';
 import {
@@ -136,6 +138,13 @@ const bridge: ObserverBridge = {
       BackfillActionSchema.parse(request),
     );
     return BackfillStatusSchema.parse(raw);
+  },
+  screenshotDirectory: async (action) => {
+    const raw: unknown = await ipcRenderer.invoke(
+      'observer:screenshot-directory',
+      ScreenshotDirectoryActionSchema.parse(action),
+    );
+    return ScreenshotDirectorySchema.parse(raw);
   },
   readBackgrounds: async () => {
     const raw: unknown = await ipcRenderer.invoke('observer:backgrounds');

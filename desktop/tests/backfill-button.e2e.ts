@@ -83,7 +83,20 @@ try {
   }
   await page.getByRole('button', { name: '整理', exact: true }).click();
   const panel = page.getByRole('region', { name: '补分析页面' });
-  const button = panel.getByRole('button');
+  const button = panel.locator('.backfill-action-row').getByRole('button');
+  await panel.getByText(f.shots, { exact: true }).waitFor();
+  const directoryOpened = application.evaluate(
+    ({ shell }) =>
+      new Promise<string>((resolve) => {
+        shell.openPath = (target) => {
+          resolve(target);
+          return Promise.resolve('');
+        };
+      }),
+  );
+  await panel.getByRole('button', { name: '打开保存目录' }).click();
+  assert.equal(await directoryOpened, f.shots);
+  checks.push('整理页显示解析后的截图目录，并将同一目录交给系统文件管理器。');
   const date = panel.getByLabel('补分析日期');
   const readStyle = async (state: string) => {
     const value = await button.evaluate((element) => {

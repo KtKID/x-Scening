@@ -48,6 +48,8 @@ export const QuerySchema = z.strictObject({
   source: SourceSchema,
 });
 export const BackfillQuerySchema = z.strictObject({ day: DaySchema });
+export const ScreenshotDirectoryActionSchema = z.enum(['read', 'open']);
+export const ScreenshotDirectorySchema = z.string().min(1);
 export const BackfillActionSchema = BackfillQuerySchema.extend({
   action: z.enum(['start', 'stop']),
 });
@@ -223,6 +225,9 @@ export type ObserverBridge = {
   saveArchiveImage: (archive: DailyArchive) => Promise<ArchiveImageReply>;
   readBackfill: (query: BackfillQuery) => Promise<BackfillStatus>;
   controlBackfill: (request: BackfillAction) => Promise<BackfillStatus>;
+  screenshotDirectory: (
+    action: z.infer<typeof ScreenshotDirectoryActionSchema>,
+  ) => Promise<z.infer<typeof ScreenshotDirectorySchema>>;
   readSettings: () => Promise<SettingsSnapshot>;
   saveSettings: (settings: SettingsSnapshot) => Promise<SettingsSnapshot>;
   readPresets: () => Promise<PresetSnapshot>;

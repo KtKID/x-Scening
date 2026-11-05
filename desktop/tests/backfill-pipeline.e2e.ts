@@ -68,8 +68,36 @@ try {
     '补分析',
     '任务关联',
   ]);
-  assert.equal(await panel.getByRole('button').count(), 1);
-  const button = panel.getByRole('button');
+  assert.equal(await panel.getByRole('button').count(), 2);
+  const button = panel.locator('.backfill-action-row').getByRole('button');
+  const openDirectory = panel.getByRole('button', { name: '打开保存目录' });
+  await panel
+    .getByText('/tmp/scening 测试/截图保存目录', { exact: true })
+    .waitFor();
+  assert.equal(
+    await panel.locator('.backfill-action-row + .backfill-location').count(),
+    1,
+    '截图保存路径位于补分析操作区下方',
+  );
+  await openDirectory.click();
+  await page.waitForFunction(() => window.pipelineFixture.directoryOpens === 1);
+  await page.evaluate(() =>
+    window.pipelineFixture.update({ directoryError: true }),
+  );
+  await openDirectory.click();
+  await panel
+    .getByRole('alert')
+    .filter({ hasText: '无法打开截图保存目录' })
+    .waitFor();
+  assert.ok(await button.isEnabled(), '打开失败不影响补分析');
+  await page.evaluate(() =>
+    window.pipelineFixture.update({ directoryError: false }),
+  );
+  await openDirectory.click();
+  await panel
+    .getByRole('alert')
+    .filter({ hasText: '无法打开截图保存目录' })
+    .waitFor({ state: 'hidden' });
   const progress = panel.getByRole('progressbar', { name: '截图分析进度' });
   assert.equal(
     await button.evaluate((el) => getComputedStyle(el).backgroundColor),
@@ -87,7 +115,7 @@ try {
   );
   assert.equal(await progress.getAttribute('value'), '3');
   await page.screenshot({ path: path.join(preview, 'ready.png') });
-  checks.push('T1：三个节点、单按钮与原棕色正常/悬停/进度条通过。');
+  checks.push('T1：三个节点、独立的目录按钮与补分析按钮、原棕色和进度条通过。');
 
   assert.equal(await panel.locator('.pipeline-packet').count(), 0);
   await page.evaluate(() => {

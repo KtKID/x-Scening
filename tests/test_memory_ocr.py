@@ -1,6 +1,7 @@
 """内存OCR专项；图片与提交保持真实，时序用例仅替换OCR文本边界。"""
 from datetime import datetime, timezone
 import io
+import json
 from pathlib import Path
 import selectors
 import signal
@@ -95,6 +96,42 @@ class MemoryOCRTests(unittest.TestCase):
                     self.collector._publish(self.stage(), 'periodic')
                 self.assertEqual(self.pictures(), [])
                 self.assertTrue(self.collector.candidates.empty())
+                [event] = self.collector.drain_status()
+                self.assertEqual((event['display'], event['captureKind']), (1, 'periodic'))
+                if isinstance(answer, Exception):
+                    self.assertEqual(event['reason'], 'ocr-error')
+                    self.assertEqual(event['hitDetails'], [])
+                else:
+                    self.assertEqual(event['reason'], 'content')
+                    self.assertEqual(event['hitDetails'], [
+                        {'rule': 'openai-key', 'length': 7, 'regions': [{'line': 1}]},
+                    ])
+                self.assertNotIn('synthetic', json.dumps(event))
+
+    def test_privacy_log_locates_normalized_and_split_matches(self):
+        """凭证和跨行匹配只记录长度及首末行，保留原规则顺序。"""
+        text = ['prefix s k - p r o j', '4111 1111', '1111 1111',
+                'token: Ab7Cd8', 'Ab7Cd8Ef9Gh0Jk1L', 'm2Np3Qr4St5Uv6Wx',
+                'Aa1Bc2De3Fg4Hi5Jk6Lm7', 'github_', 'pat_', '1101011990', '03070062']
+        with patch('scening.sensitive_guard.ocr_lines', return_value=text):
+            self.collector._publish(self.stage(), 'action')
+        [event] = self.collector.drain_status()
+        self.assertEqual(event['hits'], [
+            'openai-key', 'github-token', 'long-token', 'credential-label',
+            'bank-card', 'cn-id', 'split-token',
+        ])
+        self.assertEqual(event['hitDetails'], [
+            {'rule': 'openai-key', 'length': 13, 'regions': [{'line': 1}]},
+            {'rule': 'github-token', 'length': 11, 'regions': [{'line': 8}, {'line': 9}]},
+            {'rule': 'long-token', 'length': 21, 'regions': [{'line': 7}]},
+            {'rule': 'credential-label', 'length': 6, 'regions': [{'line': 4}]},
+            {'rule': 'bank-card', 'length': 16, 'regions': [{'line': 2}, {'line': 3}]},
+            {'rule': 'cn-id', 'length': 18, 'regions': [{'line': 10}, {'line': 11}]},
+            {'rule': 'split-token', 'length': 32, 'regions': [{'line': 5}, {'line': 6}]},
+        ])
+        for value in text:
+            self.assertNotIn(value, json.dumps(event))
+        self.assertEqual(self.pictures(), [])
 
     def test_stop_during_ocr_prevents_picture_commit(self):
         """测试内容：OCR执行期间请求停止，随后让OCR返回普通文本。
@@ -213,6 +250,16 @@ class MemoryOCRTests(unittest.TestCase):
                 self.assertEqual(memory, file)
                 self.assertEqual(memory.blocked, expected)
                 self.assertNotEqual(memory.reason, 'ocr-error')
+                if expected:
+                    self.assertEqual(set(memory.hits), {detail['rule'] for detail in memory.hit_details})
+                    for detail in memory.hit_details:
+                        [region] = detail['regions']
+                        self.assertEqual(region['line'], 1)
+                        x, y, width, height = region['box']
+                        self.assertTrue(0 <= x < 1 and 0 <= y < 1)
+                        self.assertTrue(0 < width <= 1 and 0 < height <= 1)
+                else:
+                    self.assertEqual(memory.hit_details, ())
 
     def test_invalid_memory_image_fails_closed(self):
         """测试内容：向真实OCR入口提交损坏的内存图片字节。

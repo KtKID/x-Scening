@@ -101,6 +101,8 @@ const browserBridge: ObserverBridge = {
     }),
   readBackfill: () => Promise.reject(new Error('请在桌面客户端补分析。')),
   controlBackfill: () => Promise.reject(new Error('请在桌面客户端补分析。')),
+  screenshotDirectory: () =>
+    Promise.reject(new Error('请在桌面客户端查看截图保存目录。')),
   readBackgrounds: () =>
     Promise.reject(new Error('请在桌面客户端查看后台状态。')),
   readTaskTimeline: (query) =>

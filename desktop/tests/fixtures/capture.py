@@ -57,6 +57,10 @@ with RuntimeControl(home, '--capture-only' not in sys.argv, settings.control, do
     with (home / 'launched-pids').open('a') as stream:
         stream.write(str(os.getpid()) + '\n')
     print('ready', flush=True)
+    progress_fixture = home / 'progress.json'
+    if progress_fixture.is_file():
+        for event in json.loads(progress_fixture.read_text()):
+            runtime_logging.log_event(event)
     while not stop:
         time.sleep(.01)
     while model.pending:

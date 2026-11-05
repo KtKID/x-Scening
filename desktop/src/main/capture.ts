@@ -30,6 +30,18 @@ const SettingsSchema = z.object({
 const ProcessIdSchema = z.coerce.number().int().positive();
 const FailureCodeSchema = z.object({ code: z.union([z.string(), z.number()]) });
 const PROGRESS_PREVIEW_LENGTH = 400;
+
+/** 保留终端事件的进度信息，移除专用于排查的文件位置。 */
+function captureProgressText(line: string): string {
+  return line
+    .replace(/(候选 JPEG 已保存)：.*?(?=；原分辨率 |$)/u, '$1')
+    .replace(/(KMH 分析中|KMH 分析完成，记录已保存|总结已保存)：.*$/u, '$1')
+    .replace(/；home=.*$/u, '')
+    .replace(/(['"])(?:~|\.{0,2})\/.*?\1/gu, '')
+    .replace(/(?:^|(?<=[\s：=（(]))(?:~|\.{0,2})\/[^\s；，]+/gu, '')
+    .trim();
+}
+
 type Identity = { pid: number; birth: string; mode: CaptureMode };
 type Managed = {
   child: ChildProcess;
@@ -308,7 +320,7 @@ export class CaptureController {
         if ('pid' in this.state)
           this.state = {
             ...this.state,
-            message: `采集输出日志写入失败：${error.message}`,
+            message: `采集输出日志写入失败：${captureProgressText(error.message)}`,
           };
       });
       const child = spawn(
@@ -362,8 +374,10 @@ export class CaptureController {
         if (!input) continue;
         input.pipe(output, { end: false });
         createInterface({ input }).on('line', (line) => {
-          if (!line.trim()) return;
-          lastLine = line.slice(-PROGRESS_PREVIEW_LENGTH);
+          if (/^\[[^\]]+\] (?:screenshot|mini) 目标路径：/u.test(line)) return;
+          const preview = captureProgressText(line);
+          if (!preview) return;
+          lastLine = preview.slice(-PROGRESS_PREVIEW_LENGTH);
           if (/失败|Error|Traceback/.test(line) && !line.includes('观察已停止'))
             lastIssue = lastLine;
           if ('pid' in this.state && this.state.pid === pid)
@@ -389,7 +403,7 @@ export class CaptureController {
                 }
               : {
                   state: 'error',
-                  message: `采集退出（${signal ?? String(code)}）：${lastIssue || lastLine || '请查看项目logs或desktop/.cache/capture.log'}`,
+                  message: `采集退出（${signal ?? String(code)}）：${lastIssue || lastLine || '请查看采集日志'}`,
                 };
           resolve();
           this.publish();
@@ -412,7 +426,10 @@ export class CaptureController {
     } catch (error) {
       this.state = {
         state: 'error',
-        message: error instanceof Error ? error.message : '采集启动失败',
+        message:
+          error instanceof Error
+            ? captureProgressText(error.message)
+            : '采集启动失败',
       };
     }
     return this.snapshot();
@@ -506,7 +523,10 @@ export class CaptureController {
       if ('pid' in this.state && this.state.pid === pid)
         this.state = {
           ...this.state,
-          message: error instanceof Error ? error.message : '停止失败，请重试',
+          message:
+            error instanceof Error
+              ? captureProgressText(error.message)
+              : '停止失败，请重试',
         };
       this.publish();
       throw error;

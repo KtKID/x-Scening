@@ -1,7 +1,14 @@
-import { app, BrowserWindow, ipcMain, Menu, powerMonitor } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  powerMonitor,
+  shell,
+} from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { mkdirSync } from 'node:fs';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { demoSnapshot } from '../shared/demo';
@@ -25,10 +32,11 @@ import {
   SettingsSnapshotSchema,
   BackfillQuerySchema,
   BackfillActionSchema,
+  ScreenshotDirectoryActionSchema,
   BackgroundsReplySchema,
 } from '../shared/protocol';
 import type { Snapshot } from '../shared/protocol';
-import { readLocalDay, readSnapshotImage } from './data';
+import { readLocalDay, readLocalLocations, readSnapshotImage } from './data';
 import { CaptureController } from './capture';
 import { TaskTimelineService } from './task-timeline';
 import { ArchiveImageExporter } from './archive-image';
@@ -349,6 +357,21 @@ app
       checkSender(event);
       return backfill.control(BackfillActionSchema.parse(raw));
     });
+    ipcMain.handle(
+      'observer:screenshot-directory',
+      async (event, raw: unknown) => {
+        checkSender(event);
+        const action = ScreenshotDirectoryActionSchema.parse(raw);
+        const { screenshotDir } = await readLocalLocations(configPath);
+        if (action === 'open') {
+          if (!(await stat(screenshotDir)).isDirectory())
+            throw new Error('截图保存位置应为目录');
+          const error = await shell.openPath(screenshotDir);
+          if (error) throw new Error(error);
+        }
+        return screenshotDir;
+      },
+    );
     ipcMain.handle('observer:backgrounds', (event) => {
       checkSender(event);
       return BackgroundsReplySchema.parse({

@@ -56,7 +56,8 @@ try {
   const date = panel.getByLabel('补分析日期');
   await panel.getByText('待补分析', { exact: true }).waitFor();
   assert.equal(await date.inputValue(), f.day);
-  assert.equal(await panel.getByRole('button').count(), 1);
+  assert.equal(await panel.getByRole('button').count(), 2);
+  const action = panel.locator('.backfill-action-row').getByRole('button');
   assert.equal(await callCount(f.folder), 0);
   assert.match(
     (await panel.locator('.backfill-source .pipeline-value').textContent()) ??
@@ -72,14 +73,14 @@ try {
   );
   await date.fill(moveDay(f.day, -2));
   await panel.getByRole('heading', { name: '这一天暂无截图' }).waitFor();
-  assert.equal(await panel.getByRole('button').isDisabled(), true);
+  assert.equal(await action.isDisabled(), true);
   await date.fill(localDay());
   await panel.getByRole('heading', { name: '这一天暂无截图' }).waitFor();
   await date.fill(moveDay(localDay(), 1));
   await panel
     .getByText('补分析支持今天和历史日期，请选择今天或更早日期。')
     .waitFor();
-  assert.equal(await panel.getByRole('button').isDisabled(), true);
+  assert.equal(await action.isDisabled(), true);
   assert.equal(await callCount(f.folder), 0);
   results.push('空日期与今天可核对，空日期和未来日期执行禁用，模型调用仍为0。');
   await date.fill(f.day);
@@ -118,7 +119,7 @@ try {
   await panel
     .getByRole('heading', { name: '全部已分析', exact: true })
     .waitFor();
-  assert.equal(await panel.getByRole('button').isDisabled(), true);
+  assert.equal(await action.isDisabled(), true);
   assert.match(
     (await panel.locator('.backfill-result .pipeline-value').textContent()) ??
       '',
@@ -139,7 +140,7 @@ try {
   );
   await page.screenshot({ path: path.join(screenshots, 'completed.png') });
   await page.setViewportSize({ width: 850, height: 720 });
-  assert.equal(await panel.getByRole('button').isVisible(), true);
+  assert.equal(await action.isVisible(), true);
   assert.equal(await panel.getByLabel('补分析日期').isVisible(), true);
   assert.equal(await page.locator('.inspector').isVisible(), false);
   await page.screenshot({ path: path.join(screenshots, 'narrow.png') });

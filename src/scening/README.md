@@ -342,11 +342,11 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 
 **功能与过程**：截图敏感闸门（三层中的L0应用黑名单与L2内容判定）。实时事件与定时候选以压缩JPEG暂存内存，选中后交给Vision NSData入口执行fast OCR及既有内容规则；允许后保存同一JPEG字节，敏感、OCR失败及检查期间停止时释放候选。自动积压与手动补分析调用`screenshot_queue.load_analysis_frame`，复用`SensitiveGuard.evaluate`文件入口，确认敏感后删除原图及采集信息并重建索引，删除失败时记录错误。补分析OCR失败保留文件待重试。完整时序及性能比较见[内存OCR任务](../../docs/spec/screen-observer-p0/tasks/task-memory-ocr.md)。
 
-**设计取舍**：判定全部本地完成，规则与选型依据见[敏感判定规则](../../docs/design/screenshot-sensitive-rules-20261101.md)（含 CR 修复与真实链路验证记录）。OCR 异常按"别泄露优先"阻断（fail-closed）；零行文本放行——L2 只检文本形态的秘密。拦截日志只记类别与原因，不含 OCR 原文。
+**设计取舍**：判定全部本地完成，规则与选型依据见[敏感判定规则](../../docs/design/screenshot-sensitive-rules-20261101.md)（含 CR 修复与真实链路验证记录）。OCR 异常按"别泄露优先"阻断（fail-closed）；零行文本放行——L2 只检文本形态的秘密。实时拦截日志通过 `hits` 和 `hitDetails` 提供规则及首处匹配的长度、OCR 行号与矩形。矩形为从截图左上角起的归一化 `[x, y, 宽, 高]`，截图、OCR 原文和命中字符留在内存。
 
 | 关键函数或声明 | 输入、结果与关键边界 |
 | --- | --- |
-| [`SensitiveGuard.evaluate`](sensitive_guard.py) | 接收实时JPEG字节或补分析路径与应用身份，返回`GuardVerdict(blocked, reason, hits)`，沿用同一内容规则。 |
+| [`SensitiveGuard.evaluate`](sensitive_guard.py) | 接收实时JPEG字节或补分析路径与应用身份，返回`GuardVerdict(blocked, reason, hits, hit_details)`，沿用同一内容规则。 |
 | [`detect_text`](sensitive_guard.py#L129) | 接收 OCR 全文与阈值，返回命中类别列表；前缀规则在原文与去空格文本各跑一遍，数字滑窗逐起点枚举。 |
 | [`ocr_lines`](sensitive_guard.py) | 接收JPEG字节（NSData）或图片路径（文件URL），执行Vision OCR fast并释放本轮原生临时对象；失败上抛供调用方阻断。 |
 

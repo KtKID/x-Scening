@@ -18,6 +18,7 @@ type Update = {
   readError?: boolean;
   controlError?: boolean;
   holdRead?: boolean;
+  directoryError?: boolean;
 };
 type Call = { day: string; action: 'start' | 'stop' };
 type Fixture = {
@@ -25,6 +26,7 @@ type Fixture = {
   update: (value: Update) => void;
   calls: Call[];
   reads: number;
+  directoryOpens: number;
 };
 declare global {
   interface Window {
@@ -45,8 +47,19 @@ let active = true;
 let readError = false;
 let controlError = false;
 let holdRead = false;
+let directoryError = false;
 
-const bridge: Pick<ObserverBridge, 'readBackfill' | 'controlBackfill'> = {
+const bridge: Pick<
+  ObserverBridge,
+  'readBackfill' | 'controlBackfill' | 'screenshotDirectory'
+> = {
+  screenshotDirectory(action) {
+    if (action === 'open') {
+      window.pipelineFixture.directoryOpens++;
+      if (directoryError) return Promise.reject(new Error('夹具目录缺失'));
+    }
+    return Promise.resolve('/tmp/scening 测试/截图保存目录');
+  },
   readBackfill(query) {
     window.pipelineFixture.reads++;
     if (readError) return Promise.reject(new Error('夹具核对失败'));
@@ -111,13 +124,18 @@ function reset(): void {
   readError = false;
   controlError = false;
   holdRead = false;
+  directoryError = false;
   window.pipelineFixture.calls.length = 0;
   window.pipelineFixture.reads = 0;
+  window.pipelineFixture.directoryOpens = 0;
   render();
 }
 window.pipelineFixture = {
+  directoryOpens: 0,
   reset,
   update(value) {
+    if (value.directoryError !== undefined)
+      directoryError = value.directoryError;
     if (value.backfill)
       backfill = BackfillStatusSchema.parse({ ...backfill, ...value.backfill });
     if (value.task)

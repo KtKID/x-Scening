@@ -8,10 +8,12 @@
 
 规则与设计依据见 docs/design/screenshot-sensitive-rules-20261101.md；
 全部可调数值在 observer.yaml 的 privacy 块维护，本模块只读启动快照。
-判定结果不输出任何 OCR 原文与命中片段，仅类别（防秘密进入日志）。
+判定结果只提供类别和数字定位信息，OCR 原文与命中字符保持在内存中。
 """
+from bisect import bisect_right
 import re
 from dataclasses import dataclass, field
+from itertools import accumulate
 from pathlib import Path
 from typing import Optional
 
@@ -103,7 +105,7 @@ def _scan_cards(flat: str):
     """卡号：完整数字游程逐起点 × 卡种长度，品牌前缀 + Luhn 双验证。
 
     游程取完整段不切块，避免非重叠截断真实候选；空格、ASCII 连字符
-    与破折号已在 flat 中移除。
+    与破折号已在 flat 中移除。命中返回 flat 内的首个匹配区间。
     """
     for run_m in re.finditer(r"\d{13,}", flat):
         run = run_m.group()
@@ -113,58 +115,81 @@ def _scan_cards(flat: str):
                 if len(window) < size:
                     continue
                 if _card_brand_ok(window) and luhn_ok(window):
-                    return "bank-card"
+                    offset = run_m.start() + start
+                    return offset, offset + size
     return None
 
 
 def _scan_ids(flat: str):
-    """身份证：含 X/x 的完整游程逐起点结构匹配 + 校验位，无效起点不遮蔽后续。"""
+    """身份证：结构与校验位都通过时返回 flat 内的首个匹配区间。"""
     for run_m in re.finditer(r"[0-9Xx]{13,}", flat):
         run = run_m.group()
         for start in range(len(run) - 17):
             m = ID_SHAPE.match(run, start)
             if m and id_ok(m.group()):
-                return "cn-id"
+                return run_m.start() + m.start(), run_m.start() + m.end()
     return None
 
 
 def detect_text(text, *, long_token_min=20, split_min=12, split_joined_min=24,
-                card_check=True, id_check=True, label_check=True):
+                card_check=True, id_check=True, label_check=True, match_spans=None):
     """对 OCR 全文跑秘密格式匹配，返回命中类别列表。
 
     参数text为多行文本；阈值的默认值与observer.yaml保持一致，仅测试直接调用。
     前缀/短语在原文与去空格文本各跑一遍；长token/折行/标签只在原文跑；
     数字滑窗在去空白与分隔符的flat上跑。返回去重后的类别名列表。
+    提供match_spans时，按类别填入首次匹配在原文中的区间和实际匹配长度。
     """
     lines = text.splitlines()
     compact = re.sub(r"\s+", "", text)
     hits = []
+    offsets = {}
+
+    def record(rule, start, end, *, retained=None, length=None):
+        """记录规则及数字区间，把压缩文本的偏移还原到OCR原文。"""
+        if rule in hits:
+            return
+        hits.append(rule)
+        if match_spans is None:
+            return
+        length = end - start if length is None else length
+        if retained is not None:
+            if retained not in offsets:
+                offsets[retained] = [m.start() for m in re.finditer(retained, text)]
+            positions = offsets[retained]
+            start, end = positions[start], positions[end - 1] + 1
+        match_spans[rule] = start, end, length
+
     for name, pat in PREFIX_PATTERNS:
-        if pat.search(text) or pat.search(compact):
-            hits.append(name)
-    for token in re.compile(r"[A-Za-z0-9_-]{%d,}" % long_token_min).findall(text):
+        match = pat.search(text)
+        if match:
+            record(name, *match.span())
+        elif match := pat.search(compact):
+            record(name, *match.span(), retained=r"[^\s]")
+    for match in re.finditer(r"[A-Za-z0-9_-]{%d,}" % long_token_min, text):
+        token = match.group()
         if (re.search(r"[A-Z]", token) and re.search(r"[a-z]", token)
                 and re.search(r"\d", token)):
-            hits.append("long-token")
+            record("long-token", *match.span())
             break
     if label_check:
         for label_match in CREDENTIAL_LABEL.finditer(text):
             if _credential_value_ok(label_match.group(1)):
-                hits.append("credential-label")
+                record("credential-label", *label_match.span(1))
                 break
     flat = compact.replace("\u2014", "").replace("-", "")
     if card_check:
         hit = _scan_cards(flat)
         if hit:
-            hits.append(hit)
+            record("bank-card", *hit, retained=r"[^\s—-]")
     if id_check:
         hit = _scan_ids(flat)
         if hit:
-            hits.append(hit)
+            record("cn-id", *hit, retained=r"[^\s—-]")
     # 折行密钥体：相邻行行尾/行首长token拼接后满足混合字符条件
     tail_pat = re.compile(r"[A-Za-z0-9_-]{%d,}$" % split_min)
     head_pat = re.compile(r"[A-Za-z0-9_-]{%d,}" % split_min)
-    for current, following in zip(lines, lines[1:]):
+    for index, (current, following) in enumerate(zip(lines, lines[1:])):
         tail = tail_pat.search(current)
         head = head_pat.match(following)
         if not (tail and head):
@@ -174,9 +199,41 @@ def detect_text(text, *, long_token_min=20, split_min=12, split_joined_min=24,
             continue
         if (re.search(r"[A-Z]", joined) and re.search(r"[a-z]", joined)
                 and re.search(r"\d", joined)):
-            hits.append("split-token")
+            source_lines = text.splitlines(keepends=True)
+            offset = sum(len(line) for line in source_lines[:index])
+            record("split-token", offset + tail.start(),
+                   offset + len(source_lines[index]) + head.end(), length=len(joined))
             break
-    return list(dict.fromkeys(hits))
+    return hits
+
+
+class _OcrLine(str):
+    """兼容原文本行接口，附带从图片左上角计算的归一化行矩形。"""
+
+    def __new__(cls, text, bounds):
+        line = super().__new__(cls, text)
+        line.box = tuple(round(value, 3) for value in (
+            bounds.origin.x, 1 - bounds.origin.y - bounds.size.height,
+            bounds.size.width, bounds.size.height,
+        ))
+        return line
+
+
+def _hit_details(lines, match_spans):
+    """将匹配偏移投影到首末 OCR 行，仅返回规则名、长度、行号和矩形。"""
+    starts = list(accumulate((len(line) + 1 for line in lines), initial=0))
+    details = []
+    for rule, (start, end, length) in match_spans.items():
+        first = bisect_right(starts, start) - 1
+        last = bisect_right(starts, end - 1) - 1
+        regions = []
+        for index in (first,) if first == last else (first, last):
+            region = {'line': index + 1}
+            if hasattr(lines[index], 'box'):
+                region['box'] = lines[index].box
+            regions.append(region)
+        details.append({'rule': rule, 'length': length, 'regions': regions})
+    return tuple(details)
 
 
 def ocr_lines(image_source) -> list:
@@ -207,16 +264,17 @@ def ocr_lines(image_source) -> list:
         for obs in request.results() or []:
             candidates = obs.topCandidates_(1)
             if candidates:
-                lines.append(str(candidates[0].string()))
+                lines.append(_OcrLine(str(candidates[0].string()), obs.boundingBox()))
     return lines
 
 
 @dataclass(frozen=True)
 class GuardVerdict:
-    """一次判定结果；hits只含类别名，reason取值见SensitiveGuard.evaluate。"""
+    """一次判定结果；hit_details携带首处匹配的数字定位信息。"""
     blocked: bool
     reason: str
     hits: tuple = field(default_factory=tuple)
+    hit_details: tuple = field(default_factory=tuple)
 
 
 class SensitiveGuard:
@@ -261,6 +319,7 @@ class SensitiveGuard:
             return GuardVerdict(True, 'ocr-error', ())
         if not lines:
             return GuardVerdict(False, 'ocr-empty')
+        match_spans = {}
         hits = detect_text(
             "\n".join(lines),
             long_token_min=self.config.longTokenMin,
@@ -268,7 +327,8 @@ class SensitiveGuard:
             split_joined_min=self.config.splitJoinedMin,
             card_check=self.config.cardCheck,
             id_check=self.config.idCheck,
-            label_check=self.config.labelCheck)
+            label_check=self.config.labelCheck,
+            match_spans=match_spans)
         if hits:
-            return GuardVerdict(True, 'content', tuple(hits))
+            return GuardVerdict(True, 'content', tuple(hits), _hit_details(lines, match_spans))
         return GuardVerdict(False, 'clean')

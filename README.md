@@ -175,3 +175,16 @@ desktop/scripts/run.sh run build
 ## 自动打包发布
 
 推送与源码版本一致的`v`标签（例如`v0.2.0`），GitHub Actions会构建macOS Apple Silicon客户端，明确使用`publish`模式，核对实际包的模式、版本、架构和Logo后发布Release附件。手动运行默认仅验证候选包。版本准备和命令见[GitHub Release说明](desktop/README.md#github-release)，运行结果见[Actions](https://github.com/KtKID/x-scening/actions/workflows/release.yml)。
+
+## 许可证
+
+本项目原创代码采用 [MIT License](LICENSE)，允许商业使用、修改、分发和销售，相关副本须保留版权与许可声明。
+
+第三方代码、依赖和参考副本分别遵循各自的许可证，相关版权及许可声明随对应文件保留。
+
+## 灵感来源与致谢
+
+x-scening 的产品构想受到以下项目的启发：
+
+- [Dayflow](https://github.com/JerryZLiu/Dayflow)：将屏幕活动整理为每日时间线的思路。上游采用 [MIT License](https://github.com/JerryZLiu/Dayflow/blob/main/LICENSE)。
+- [Coco](https://github.com/collaborative-agents/coco)：持续感知电脑使用上下文，为主动式协助提供基础的思路。上游采用 [Apache License 2.0](https://github.com/collaborative-agents/coco/blob/main/LICENSE)。

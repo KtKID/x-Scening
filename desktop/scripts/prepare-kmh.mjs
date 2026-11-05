@@ -14,7 +14,6 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
 import ts from 'typescript';
 import {
   createRuntimeArchive,
@@ -24,11 +23,6 @@ import {
 
 const desktop = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const root = path.dirname(desktop);
-const config = parse(await readFile(path.join(root, 'observer.yaml'), 'utf8'));
-const source = path.resolve(
-  process.env.KMH_SOURCE_ROOT ??
-    path.dirname(path.dirname(path.resolve(root, config.kmhLauncher))),
-);
 const output = path.join(desktop, '.cache/kmh-runtime');
 const snapshotDirectory = path.join(root, 'vendor/kmh-scening');
 const snapshotArchive = path.join(snapshotDirectory, 'runtime.tar.gz');
@@ -88,6 +82,12 @@ if (!process.argv.includes('--sync')) {
   console.log('KMH scening已从项目内快照准备完成。');
   process.exit(0);
 }
+const sourceRoot = process.env.KMH_SOURCE_ROOT;
+if (!sourceRoot?.trim())
+  throw new Error(
+    '同步内置 Agent 运行时前，请通过 KMH_SOURCE_ROOT 指定上游源码目录。',
+  );
+const source = path.resolve(sourceRoot);
 const nodeBinary = await realpath(
   process.env.KMH_NODE_BINARY ?? process.execPath,
 );

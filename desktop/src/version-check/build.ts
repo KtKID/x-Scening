@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { verifyBundledRuntimes } from '../bundled-runtime-check';
 import { randomUUID } from 'node:crypto';
 import {
+  cp,
   mkdir,
   lstat,
   open,
@@ -174,9 +176,10 @@ async function runTool(
   desktop: string,
   args: string[],
   env: NodeJS.ProcessEnv,
+  executable = process.execPath,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, args, {
+    const child = spawn(executable, args, {
       cwd: desktop,
       env,
       stdio: 'inherit',
@@ -192,7 +195,12 @@ async function runTool(
 
 /** 唯一手动构建入口：完成应用发布后才向运行客户端发布成功标记。 */
 async function buildLocalClient(): Promise<void> {
-  const { values } = parseArgs({ options: { mode: { type: 'string' } } });
+  const { values } = parseArgs({
+    options: {
+      mode: { type: 'string' },
+      'output-root': { type: 'string' },
+    },
+  });
   const mode = resolveBuildMode({
     ...process.env,
     ...(values.mode === undefined ? {} : { OBSERVER_BUILD_MODE: values.mode }),
@@ -201,6 +209,9 @@ async function buildLocalClient(): Promise<void> {
     fileURLToPath(new URL('../../..', import.meta.url)),
   );
   const desktop = path.join(root, 'desktop');
+  const outputRoot = values['output-root']
+    ? path.resolve(values['output-root'])
+    : root;
   const metadata: unknown = JSON.parse(
     await readFile(path.join(desktop, 'package.json'), 'utf8'),
   );
@@ -213,10 +224,10 @@ async function buildLocalClient(): Promise<void> {
     createdAt: new Date().toISOString(),
   });
   await publishLocalBuild(
-    root,
+    outputRoot,
     build,
-    (info) =>
-      runTool(
+    async (info) => {
+      await runTool(
         desktop,
         [
           path.join(desktop, 'node_modules/electron-vite/bin/electron-vite.js'),
@@ -227,8 +238,25 @@ async function buildLocalClient(): Promise<void> {
           OBSERVER_BUILD_MODE: mode,
           OBSERVER_LOCAL_BUILD_INFO: JSON.stringify(info),
         },
-      ),
+      );
+      if (outputRoot !== root) {
+        const output = path.join(outputRoot, 'desktop/out');
+        await rm(output, { recursive: true, force: true });
+        await cp(path.join(desktop, 'out'), output, { recursive: true });
+      }
+    },
     async (output) => {
+      await runTool(
+        desktop,
+        [path.join(desktop, 'scripts/prepare-kmh.mjs')],
+        process.env,
+      );
+      if (mode === 'publish')
+        await runTool(
+          desktop,
+          [path.join(desktop, 'scripts/prepare-python.mjs')],
+          process.env,
+        );
       await runTool(
         desktop,
         [
@@ -243,11 +271,39 @@ async function buildLocalClient(): Promise<void> {
       if (process.platform === 'darwin') {
         const app = localClientPaths(root, output).app;
         await rename(path.join(path.dirname(app), 'Observer.app'), app);
+        // 包内依赖与Node在写成功标记前完成真实启动；资源复制遗漏在此阻止发布。
+        const runtime = path.join(app, 'Contents/Resources/kmh-runtime');
+        await readFile(
+          path.join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js'),
+        );
+        const smokeHome = path.join(output, 'kmh-smoke-home');
+        try {
+          await runTool(
+            desktop,
+            [
+              path.join(runtime, 'kmh.mjs'),
+              'dsh',
+              '--profile',
+              'scening',
+              '--dump-config',
+            ],
+            {
+              ...process.env,
+              KMH_HOME: smokeHome,
+              DSH_TELEMETRY_DISABLED: '1',
+            },
+            path.join(runtime, 'node'),
+          );
+        } finally {
+          await rm(smokeHome, { recursive: true, force: true });
+        }
+        if (mode === 'publish')
+          await verifyBundledRuntimes(path.join(app, 'Contents/Resources'));
       }
     },
   );
   console.log(
-    `客户端已就绪：v${build.version} · ${mode} · ${localClientPaths(root).app}`,
+    `客户端已就绪：v${build.version} · ${mode} · ${localClientPaths(outputRoot).app}`,
   );
 }
 

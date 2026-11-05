@@ -78,7 +78,7 @@ try {
 
   await page.getByLabel('定时截图间隔（秒）', { exact: true }).fill('42');
   await page.getByLabel('截图缓存频率（帧/秒）', { exact: true }).fill('4');
-  await page.locator('summary').filter({ hasText: '存储与模型' }).click();
+  await page.locator('summary').filter({ hasText: '存储与高级设置' }).click();
   await page.getByLabel('截图保存目录', { exact: true }).fill('./new-pictures');
   await page.getByLabel('新任务类型').fill('临时');
   await page.getByRole('button', { name: '添加', exact: true }).click();

@@ -2,11 +2,13 @@
 
 `runtime.tar.gz`为本项目采用的KMH scening生产运行快照，包含profile、插件、模型适配器及供应商目录、原生依赖和独立Node。当前平台为macOS Apple Silicon，具体源版本、平台、依赖数与SHA256见`snapshot.json`；归档内`manifest.json`列出包名和版本，许可证保留在各依赖包目录。
 
-普通客户端构建从本目录读取快照并校验哈希，解包至`desktop/.cache/kmh-runtime`，最终位于应用`Contents/Resources/kmh-runtime`。应用运行时数据保存在所选`<observer-home>/kmh`，用户的凭据及运行数据由现有home管理。
+`node desktop/scripts/prepare-kmh.mjs`从本目录读取快照并校验哈希，解包至`desktop/.cache/kmh-runtime`，源码入口的默认启动器位于该目录。桌面构建将快照纳入应用的 `Contents/Resources/kmh-runtime`。模型参数与API密钥统一通过客户端“设置 → 模型”填写和保存，运行数据由应用按所选数据目录管理。
 
 ## Node版本与依赖文件
 
-当前快照内置Node v24.22.1，平台为darwin/arm64。使用该快照的客户端通过随包Node启动KMH，用户本机的Node版本可各自保留。源码开发与重新同步快照建议使用Node 24.9.0及以上版本，与KMH CLI声明的最低版本一致；根目录和desktop README里的Node 22.12+要求对应桌面工具链。GitHub构建环境使用Node 24。
+当前快照内置Node v24.22.1，平台为darwin/arm64。KMH CLI在package.json中声明`engines.node: >=24.9.0`。根目录[源码运行与编译流程](../../README.md#从源码运行与编译)使用系统Node启动此CLI，因此明确要求本机Node ≥24.9.0；普通源码构建先解包固定快照，开发模式从 `observer_dev.yaml` 读取运行配置。更换上游快照时，执行同步脚本的系统Node和`KMH_NODE_BINARY`指定的随包Node均须满足该版本要求。
+
+快照中的Node与用户安装的系统Node分别管理。通过包内Node启动KMH的客户端采用固定的v24.22.1；源码入口采用其启动环境里的Node。GitHub构建环境使用Node 24。完整源码构建步骤、Python依赖、API Key、编译命令和产物位置统一以根目录流程为准。
 
 `packages/`目录保存完整生产依赖闭包，子目录名是内部哈希编号。Koffi包中的`vendor/node-api-headers`提供编译原生扩展使用的C头文件和许可证；同步过程沿用上游依赖包的目录结构，因此构建辅助文件也随包保留。当前原生运行采用随快照提供的macOS arm64组件。展开的`runtime/`由Git忽略，Git只维护压缩快照及其说明、校验元信息。
 
@@ -23,7 +25,7 @@ profile与依赖包共用敏感文件过滤：凭据配置、`.env*`、私钥、
 清理既有固定快照时，在项目根运行：
 
 ```sh
-desktop/scripts/run.sh exec -- node scripts/prepare-kmh.mjs --repack
+node desktop/scripts/prepare-kmh.mjs --repack
 ```
 
 `--repack`先校验原快照哈希，再从原归档清理并重建，保留上游提交、平台和依赖版本，更新`snapshot.json`的SHA256和字节数，并刷新本地展开的`runtime/`目录。归档通过临时文件成功生成后替换。

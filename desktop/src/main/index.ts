@@ -36,6 +36,13 @@ import { DailyReviewService } from './daily-review';
 import { DailyReviewScheduler } from './daily-review-scheduler';
 import { PresetService } from './presets';
 import { SettingsService } from './settings';
+import { ModelSettingsService } from './models';
+import {
+  ModelSettingsSchema,
+  ModelSelectionSchema,
+  SaveProviderSchema,
+  ProviderIdSchema,
+} from '../shared/models';
 import { BackfillService } from './backfill';
 import {
   DailyReviewReplySchema,
@@ -47,6 +54,7 @@ import { scheduleMacRestart } from '../version-check/mac-restart';
 import { localClientPaths } from '../version-check/paths';
 import { RuntimeModeSchema } from '../runtime-mode';
 import { prepareRuntimePaths, resolveSourceRoot } from './runtime-paths';
+import { resolveApplicationRoot } from './application-root';
 import {
   LOCAL_BUILD_CHECK_INTERVAL_MS,
   LocalBuildInfoSchema,
@@ -61,15 +69,28 @@ declare const __OBSERVER_RUNTIME_MODE__: unknown;
 declare const __OBSERVER_PUBLISH_CONFIG__: string;
 const runningBuild = LocalBuildInfoSchema.parse(__OBSERVER_LOCAL_BUILD__);
 let localBuildTimer: ReturnType<typeof setInterval> | undefined;
+const runtimeMode = RuntimeModeSchema.parse(__OBSERVER_RUNTIME_MODE__);
 const sourceRoot = resolveSourceRoot(
   directory,
   app.isPackaged,
   process.platform,
 );
-const projectRoot = process.env.OBSERVER_PROJECT_ROOT ?? sourceRoot;
+const projectRoot = resolveApplicationRoot(
+  process.env.OBSERVER_PROJECT_ROOT ?? sourceRoot,
+  process.resourcesPath,
+  app.isPackaged,
+  runtimeMode,
+);
+const backendRoot =
+  app.isPackaged && runtimeMode === 'publish' ? projectRoot : sourceRoot;
+if (app.isPackaged && runtimeMode === 'publish') {
+  delete process.env.PYTHONHOME;
+  process.env.PYTHONNOUSERSITE = '1';
+  process.env.PYTHONDONTWRITEBYTECODE = '1';
+}
 const runtimePaths = await prepareRuntimePaths(
   projectRoot,
-  RuntimeModeSchema.parse(__OBSERVER_RUNTIME_MODE__),
+  runtimeMode,
   process.env.OBSERVER_CONFIG,
   __OBSERVER_PUBLISH_CONFIG__,
 );
@@ -79,13 +100,27 @@ process.env.SCENING_LOG_DIR = runtimePaths.logRoot;
 const capture = new CaptureController(projectRoot, configPath, cacheRoot);
 const presets = new PresetService(projectRoot, configPath);
 const settings = new SettingsService(projectRoot, configPath);
+const kmhRuntime = app.isPackaged
+  ? path.join(process.resourcesPath, 'kmh-runtime')
+  : path.join(projectRoot, 'desktop/.cache/kmh-runtime');
+// 内置Node独立于Electron运行，Python及所有总结/整理子进程继承同一入口。
+process.env.SCENING_KMH_NODE = path.join(
+  kmhRuntime,
+  process.platform === 'win32' ? 'node.exe' : 'node',
+);
+process.env.SCENING_KMH_LAUNCHER = path.join(kmhRuntime, 'kmh.mjs');
+const modelSettings = new ModelSettingsService(
+  settings,
+  kmhRuntime,
+  configPath,
+);
 const taskTimeline = new TaskTimelineService(
   projectRoot,
   configPath,
-  sourceRoot,
+  backendRoot,
 );
 const dailyReview = new DailyReviewService(projectRoot, configPath);
-const backfill = new BackfillService(projectRoot, configPath, sourceRoot);
+const backfill = new BackfillService(projectRoot, configPath, backendRoot);
 mkdirSync(cacheRoot, { recursive: true });
 app.setPath('userData', path.join(cacheRoot, 'user-data'));
 app.setPath('sessionData', path.join(cacheRoot, 'session-data'));
@@ -320,6 +355,28 @@ app
         organizing: taskTimeline.background(),
         backfill: backfill.background(),
       });
+    });
+    ipcMain.handle('observer:models', async (event) => {
+      checkSender(event);
+      return ModelSettingsSchema.parse(await modelSettings.read());
+    });
+    ipcMain.handle('observer:models-save', async (event, raw: unknown) => {
+      checkSender(event);
+      return ModelSettingsSchema.parse(
+        await modelSettings.save(SaveProviderSchema.parse(raw)),
+      );
+    });
+    ipcMain.handle('observer:models-select', async (event, raw: unknown) => {
+      checkSender(event);
+      return ModelSettingsSchema.parse(
+        await modelSettings.select(ModelSelectionSchema.parse(raw)),
+      );
+    });
+    ipcMain.handle('observer:models-remove', async (event, raw: unknown) => {
+      checkSender(event);
+      return ModelSettingsSchema.parse(
+        await modelSettings.remove(ProviderIdSchema.parse(raw)),
+      );
     });
     ipcMain.handle('observer:settings', async (event) => {
       checkSender(event);

@@ -16,6 +16,7 @@ import { parseArgs, promisify } from 'node:util';
 import { z } from 'zod';
 import { LocalBuildInfoSchema } from './version-check/protocol';
 import { localClientPaths } from './version-check/paths';
+import { verifyBundledRuntimes } from './bundled-runtime-check';
 
 const execute = promisify(execFile);
 export const ReleaseTagSchema = z.string().regex(/^v\d+\.\d+\.\d+$/);
@@ -111,6 +112,7 @@ export async function verifyMacRelease(app: string, tag: string) {
     .split(/\s+/);
   if (!architectures.includes('arm64'))
     throw new Error('Release可执行文件要求arm64架构');
+  await verifyBundledRuntimes(resources);
   return ReleaseInfoSchema.parse({
     tag,
     version,

@@ -171,28 +171,23 @@ PYTHONPATH=src .venv/bin/python -B -m scening.screenshot_backfill --day 2026-10-
 
 <a id="kmh-configuration"></a>
 
-### KMH 配置与 MiniMax 中国区 API Key
+### KMH 配置与模型设置
 
-`kmh_interpreter.py`通过外部KMH独立headless调用分析图片及总结；默认provider为`minimax-cn`、模型为`MiniMax-M3`、思考等级为`high`。中国区接口为`https://api.minimax.cn/anthropic`，采用Anthropic Messages协议；M3的图像输入由KMH原生`read_image`提供，JSON通过`read`读取。
+`kmh_interpreter.py`通过KMH scening独立headless调用分析图片及总结。桌面使用应用资源内的运行快照与Node，`SCENING_KMH_NODE`/`SCENING_KMH_LAUNCHER`由主进程提供；命令行默认沿用`kmhLauncher`。scening默认provider为`minimax-cn`、模型为`MiniMax-M3`、思考等级为`high`，设置页可选择供应商、图片模型和思考等级。原生`read_image`提供图片输入，JSON通过`read`读取。
 
 | 配置来源 | 本项目使用的内容 |
 | --- | --- |
 | [`observer.yaml`](../../observer.yaml) | `kmhLauncher`指定外部`scripts/kmh.mjs`，`kmhProfile`选择`scening`，维护模型超时、退出等待与分析/总结字数。 |
 | `<kmh-repo>/profiles/scening/cordis.patch.yml` | minimax-cn、MiniMax-M3、high、CN endpoint、Key引用及独立sessions-scening目录。 |
 | `<kmh-repo>/profiles/scening/package.json` | 专用单次运行、凭据、会话、read_image/submit_observation及总结read工具组合。 |
-| `KMH_HOME = <observer-home>/kmh` | 保存会话、附件、日志与凭据；profiles目录内的软链接指向外部KMH配置。历史ZCode数据保留。 |
+| `KMH_HOME = <observer-home>/kmh` | 保存会话、附件、日志与凭据；桌面使用独占的profiles/x-scening-bundled，插件链接指向应用资源。历史ZCode数据保留。 |
+| `<observer-home>/kmh/observer-model.patch.yml` | 设置页保存的供应商路由和agent-default-model选择；每次调用在本轮工具patch之前传入，后续调用读取最新值。 |
 
-#### 填写 Key
+#### 在设置中配置模型
 
-在[MiniMax中国区接口密钥页面](https://platform.minimax.cn/console/access?tab=api-keys)创建API Key，然后打开本项目`home/kmh/.env`，把Key粘贴到等号后：
+打开客户端“设置 → 模型”，在“第三方模型提供商”中选择供应商，或使用“自定义模型API”。填写API密钥，选择支持图片的模型及思考等级，点击“保存”。上方卡片显示已保存的供应商，支持编辑、删除和当前模型切换；编辑时密钥留空沿用已保存的值。
 
-```dotenv
-MINIMAX_CN_API_KEY=你的中国区API密钥
-```
-
-该文件位于Git忽略的home目录，创建权限为0600。自定义home时填写`<observer-home>/kmh/.env`。停止后重新开始采集可加载当前Python提示和配置；每次新启动的KMH调用会读取文件。Key保存在本机私有文件内。
-
-既有凭据服务按启动环境、`<observer-home>/kmh/.credentials.yaml`中的refs、项目`.env`、`<observer-home>/kmh/.env`的顺序解析同名值；更高优先级的旧值需要在其原来源更新。缺少Key显示MISSING_CREDENTIAL；服务认证与额度以真实请求结果确认。[官方说明](https://platform.minimax.cn/docs/api-reference/text-anthropic-api)列出中国区接口及M3图片支持。
+应用负责将密钥保存为本机私有配置，文件权限为0600；界面读取结果仅返回保存状态。自定义API的协议、地址和模型也通过同一设置页维护。保存后的选择在后续分析、任务整理和总结调用中读取。实现及验证见[模型设置task](../../docs/spec/screen-observer-p0/tasks/task-model-settings.md)。
 
 #### 图片与提交顺序
 
@@ -678,6 +673,8 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 
 ## 文档变更
 
+- 2026-11-05：新增桌面内置KMH入口、模型patch与设置页凭据维护；沿用scening原生工具与正式数据归属，验证见[模型设置task](../../docs/spec/screen-observer-p0/tasks/task-model-settings.md)。
+
 - 2026-11-05：清理四个模块的六个多余导入，将任务测试中的协议与保存函数改为直接引用所属模块；[维护任务](../../docs/task/task-unused-import-cleanup.md)记录 123 项测试，121 项通过、2 项配置基线失败。
 - 2026-11-04：新增dev/publish构建路径与用户目录展开，用户配置首次创建及后续保留见[发布模式任务](../../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)，本地验收已完成。
 - 2026-11-04：修改运行入口与终端说明命名，候选日志 `mode` 统一为 `scening_candidate`；[命名清理任务](../../docs/spec/screen-observer-p0/tasks/task-source-naming-cleanup.md)已完成，42项回归通过后已撤销初始化提交并核对全部本地文件保全。
@@ -689,8 +686,12 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 
 - 2026-10-28：凑满三帧生成时间标签拼图，活动保留原图证据，退出及中断结束未满批；见[三帧task](../../docs/spec/screen-observer-p0/tasks/task-three-frame-analysis.md)。
 
-- 2026-10-27：默认分析切换为MiniMax中国区M3/API Key，填写入口为home/kmh/.env，图片使用read_image、总结使用read；见[切换task](../../docs/spec/screen-observer-p0/tasks/task-minimax-m3.md)。
+- 2026-10-27：默认分析切换为MiniMax中国区M3/API Key，图片使用read_image、总结使用read；见[切换task](../../docs/spec/screen-observer-p0/tasks/task-minimax-m3.md)。
 
 - 2026-10-27：移除旧单帧、离线缩图双图及截图目录回退；保留多屏采集和 `home/kmh`。见 [清理 task](../../docs/spec/screen-observer-p0/tasks/task-remove-legacy-capture.md)。
 
 - 2026-10-27：集中说明外部 KMH 配置、Coding Plan 登录读取顺序和当前验证状态；区分实时 JPEG 与兼容 `_mini`，路径示例统一采用相对引用或占位符。
+
+### 发布客户端内置后端
+
+publish客户端将本模块源码、配置模板、独立Python及截图/OCR生产依赖保存到应用`Resources/python-runtime`，模型程序位于并列的`kmh-runtime`。启动从应用自身资源定位，用户数据和凭据仍归所选home。开发命令继续使用项目`.venv`。打包、迁移和ZIP回读检查见[Release运行环境任务](../../docs/spec/screen-observer-p0/tasks/task-portable-runtime.md)。

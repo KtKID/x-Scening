@@ -68,7 +68,7 @@ jobs:
       - name: Build publish application
         working-directory: desktop
         run: npm run build:publish
-      - name: Verify application and create release archive
+      - name: Verify application, bundled runtimes and create release archive
         working-directory: desktop
         run: npm run release:archive -- --tag "$RELEASE_TAG"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -73,6 +73,13 @@ declare global {
 }
 
 const browserBridge: ObserverBridge = {
+  readModelSettings: () =>
+    Promise.reject(new Error('请在桌面客户端配置模型。')),
+  saveModelProvider: () =>
+    Promise.reject(new Error('请在桌面客户端配置模型。')),
+  selectModel: () => Promise.reject(new Error('请在桌面客户端配置模型。')),
+  removeModelProvider: () =>
+    Promise.reject(new Error('请在桌面客户端配置模型。')),
   readDailyReviewState: () =>
     Promise.reject(new Error('Daily summary requires desktop')),
   generateDailyReview: () =>

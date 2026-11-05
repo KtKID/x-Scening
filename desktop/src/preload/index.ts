@@ -29,8 +29,37 @@ import {
   BackfillStatusSchema,
 } from '../shared/scening.generated';
 import type { ObserverBridge } from '../shared/protocol';
+import {
+  ModelSettingsSchema,
+  ModelSelectionSchema,
+  SaveProviderSchema,
+  ProviderIdSchema,
+} from '../shared/models';
 
 const bridge: ObserverBridge = {
+  readModelSettings: async () =>
+    ModelSettingsSchema.parse(await ipcRenderer.invoke('observer:models')),
+  saveModelProvider: async (request) =>
+    ModelSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        'observer:models-save',
+        SaveProviderSchema.parse(request),
+      ),
+    ),
+  selectModel: async (request) =>
+    ModelSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        'observer:models-select',
+        ModelSelectionSchema.parse(request),
+      ),
+    ),
+  removeModelProvider: async (provider) =>
+    ModelSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        'observer:models-remove',
+        ProviderIdSchema.parse(provider),
+      ),
+    ),
   readDailyReviewState: async (query) => {
     const raw: unknown = await ipcRenderer.invoke(
       'observer:daily-review-state',

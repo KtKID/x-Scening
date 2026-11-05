@@ -6,7 +6,7 @@ x-scening 是一个面向 macOS 的被动式屏幕感知系统：持续观察电
 
 在浏览器查资料、到编辑器改代码、回到聊天窗口核对方案——这些分散在不同应用里的操作，可以沿着同一件事重新串起来。
 
-[隐私与数据流](#隐私与数据流) · [功能](#能做什么) · [本地运行](#本地运行) · [数据与控制](#数据与控制) · [流程与验证索引](#开发文档)
+[隐私与数据流](#隐私与数据流) · [功能](#能做什么) · [源码编译](#从源码运行与编译) · [数据与控制](#数据与控制) · [流程与验证索引](#开发文档)
 
 ## 隐私与数据流
 
@@ -70,13 +70,29 @@ flowchart LR
 
 任务关联依据屏幕可见内容和已有记录生成；任务完成情况由用户判断。时长有连续采样依据时显示估算，单次观察和记录空白保留“待确认”。当前任务关联范围为**同一天**。
 
-## 本地运行
+## 从源码运行与编译
 
-当前采集链路面向 **macOS**。桌面客户端使用 Electron、React 和 TypeScript，采集与记录使用 Python；分析通过外部 **KMH 的 `scening` profile** 调用模型。
+以下步骤用于编译和运行开发模式客户端。应用使用项目源码、Python 虚拟环境和随仓库提供的内置 Agent 运行时。该运行时基于 DeepSeek Harness 插件打包。
 
-### 1. 准备环境
+### 1. 确认环境并下载源码
 
-准备 Python 3.9+、Node.js 22.12+ 或 24+，以及系统可用的 `npm`，然后在终端执行：
+| 项目 | 本流程要求 | 依据 |
+| --- | --- | --- |
+| 电脑 | macOS、Apple Silicon；Node 的平台/架构为 `darwin/arm64` | 仓库中的 KMH 固定快照为 macOS arm64，准备脚本会校验平台与架构 |
+| Node.js | **24.9.0 或更高版本**，并提供 `npm` | 源码 Python 入口使用系统 Node 启动 KMH；KMH CLI 的 `engines.node` 为 `>=24.9.0` |
+| Python | **3.9 或更高版本**，提供 `venv`、`pip` | `requirements.txt` 中固定的 Pillow、Pydantic、MSS、Vision 依赖支持 Python 3.9 起 |
+| Git 与网络 | 可执行 `git clone`；首次安装能下载 Python/npm 依赖及 Electron | 安装步骤所需 |
+
+先确认终端使用的版本和 Node 架构：
+
+```sh
+node --version
+npm --version
+node -p 'process.platform + "/" + process.arch'
+python3 --version
+```
+
+Node 版本应达到 `v24.9.0`，平台/架构应输出 `darwin/arm64`。然后下载源码并安装 Python 依赖：
 
 ```sh
 git clone https://github.com/KtKID/x-scening.git
@@ -88,21 +104,59 @@ python3 -m venv .venv
 
 macOS 采集需要授予屏幕录制权限，键鼠监听需要相应的输入监控或辅助功能权限。首次运行时按系统提示授权。
 
-### 2. 配置分析环境
+### 2. 安装桌面依赖并准备 Agent 运行时
 
-图片分析、任务整理和总结使用基于 DeepSeek Harness 插件打包的内置 Agent 运行时。源码运行前执行 `node desktop/scripts/prepare-kmh.mjs` 准备固定快照，默认启动器和插件组合见 [公开模板](observer.yaml)。开发环境的个人参数保存在 `observer_dev.yaml`。
-
-当前默认分析配置为 MiniMax 中国区 `MiniMax-M3`。凭据填写在本机的 `home/kmh/.env`，配置方法、profile 来源与运行目录见 [KMH 配置说明](src/scening/README.md#kmh-configuration)。本仓库保留 KMH 调用适配，外部 KMH 环境需要单独准备。
-
-### 3. 启动桌面客户端
+后续命令均在项目根目录执行：
 
 ```sh
 desktop/scripts/run.sh ci
 desktop/scripts/run.sh run setup:electron
+node desktop/scripts/prepare-kmh.mjs
+```
+
+最后一条命令校验 `vendor/kmh-scening/runtime.tar.gz`，解包到 `desktop/.cache/kmh-runtime/`。普通源码构建使用这份固定快照；更换上游 KMH 版本时才使用 `models:sync`，更新步骤见 [KMH 快照说明](vendor/kmh-scening/README.md)。
+
+### 3. 配置模型
+
+默认启动器与插件组合如下，开发环境的个人配置保存在项目根目录 `observer_dev.yaml`。
+
+```yaml
+kmhLauncher: desktop/.cache/kmh-runtime/kmh.mjs
+kmhProfile: scening
+```
+
+该路径相对于项目根目录的配置文件解析。源码 Python 入口从 `PATH` 查找系统 Node，再调用此启动器；这也是第1步要求 Node ≥24.9.0 的原因。
+
+启动客户端后，打开“设置 → 模型”：
+
+1. 在“第三方模型提供商”中选择供应商，或切换到“自定义模型 API”。
+2. 填写 API 密钥，选择模型和思考等级，点击“保存”。
+3. 已保存的供应商显示在上方卡片中，可编辑、删除及切换当前模型。
+
+编辑已有供应商时，API 密钥留空会沿用已保存的值。应用负责保存模型配置和密钥，后续分析与总结使用保存后的选择。
+
+### 4. 检查并编译应用
+
+```sh
+desktop/scripts/run.sh run check
+desktop/scripts/run.sh version patch --no-git-tag-version
+desktop/scripts/run.sh run build
+open desktop/release/mac-arm64/x-scening.app
+```
+
+`check` 执行类型、代码规范、格式和 Python→桌面契约检查；`version patch` 按仓库规则同步递增源码与锁文件版本；`build` 编译界面并打包应用。成功后，应用位于 `desktop/release/mac-arm64/x-scening.app`。
+
+以上命令生成 `dev` 模式应用，读取项目里的 `observer_dev.yaml`，并使用项目 `.venv`。面向其他 Mac 的安装包使用 `build:publish`，将 Python、Node 和 Agent 运行时打入应用。构建与 ZIP 验证命令见[发布说明](desktop/README.md#github-release)。
+
+### 5. 开发调试与采集
+
+需要修改界面并实时查看时，在项目根运行：
+
+```sh
 ./desktop/run.sh
 ```
 
-进入客户端后，点击“开始截屏”，通过“开启分析”选择是否同步生成活动与总结。开启分析会先补当天积压，再处理新截图；“补分析”页面可以单独补齐指定日期。
+进入客户端后，点击“开始截屏”，通过“开启分析”选择是否同步生成活动与总结。开启分析先补当天积压，再处理新截图；“补分析”页面可以单独补齐指定日期。
 
 也可以从项目根直接运行采集程序：
 

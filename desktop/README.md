@@ -14,17 +14,30 @@ Electron + React + TypeScript 的黄纸底时间线客户端。启动默认读�
 ./desktop/run.sh
 ```
 
-首次安装（依赖与缓存都保存在项目内）：
+源码用户先完成[根目录的源码运行与编译步骤](../README.md#从源码运行与编译)：当前快照要求macOS Apple Silicon；本流程使用Node ≥24.9.0、npm及Python ≥3.9。先创建项目`.venv`并安装根目录`requirements.txt`，再执行：
 
 ```sh
 desktop/scripts/run.sh ci
 desktop/scripts/run.sh run setup:electron
-./desktop/run.sh
+node desktop/scripts/prepare-kmh.mjs
 ```
 
-脚本使用系统已安装的 Node/npm，保留已有 PATH 的优先顺序，并补入当前用户的 `~/.local/bin` 和 macOS 常见安装目录。Node 版本由用户维护。当前工具要求 Node 22.12+ / 24+。脚本仅对本次子进程清除代理变量以直接下载依赖；全局配置保持原值。所有 `npm` 命令建议经 `scripts/run.sh` 执行。
+然后默认使用`kmhLauncher: desktop/.cache/kmh-runtime/kmh.mjs`、`kmhProfile: scening`。启动客户端后，打开“设置 → 模型”，选择第三方模型提供商或自定义模型API，填写API密钥、选择模型和思考等级，再点击“保存”。编辑已有供应商时，密钥留空沿用已保存的值。完整构建命令见根目录说明。
 
-客户端启动采集和每日总结时沿用相同的系统 Node 查找顺序：已有 PATH、当前用户的 `~/.local/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。协议同步脚本从系统 PATH 定位 Node。当前分析采用MiniMax中国区M3/API Key，填写入口见下方scening说明。KMH失败时界面保留已知诊断码，详细输出沿用KMH运行日志。
+从源码生成本机应用：
+
+```sh
+desktop/scripts/run.sh run check
+desktop/scripts/run.sh version patch --no-git-tag-version
+desktop/scripts/run.sh run build
+open desktop/release/mac-arm64/x-scening.app
+```
+
+开发模式应用使用项目源码、`.venv` 和内置 Agent 运行时。界面开发使用 `./desktop/run.sh`。
+
+脚本使用系统已安装的Node/npm，保留已有PATH的优先顺序，并补入当前用户的`~/.local/bin`和macOS常见安装目录。源码Python入口使用系统Node调用KMH，KMH CLI要求Node ≥24.9.0；该要求同时满足当前桌面锁文件的Node范围。脚本仅对本次子进程清除代理变量以直接下载依赖；全局配置保持原值。本节的npm命令统一经`scripts/run.sh`执行。
+
+当前工作区已实现、待单独提交的内置运行环境接入，采用应用资源内的KMH与独立Node；已提交源码按本节步骤配置启动器并使用系统Node。协议同步脚本从系统PATH定位Node。模型设置页的供应商维护与选择属于该开发接入；KMH失败时的详细输出沿用KMH运行日志。
 
 KMH 的 profile 来源、模型与思考等级、独立运行目录、API Key填写及当前验证状态统一见 [scening 的 KMH 配置说明](../src/scening/README.md#kmh-configuration)。路径示例采用项目相对路径或占位符。
 
@@ -33,6 +46,9 @@ KMH 的 profile 来源、模型与思考等级、独立运行目录、API Key填
 Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.ps1 ci`、`desktop/scripts/run.ps1 run setup:electron`、`desktop/scripts/run.ps1 run dev`。本轮真实运行覆盖 macOS；Windows / Linux 的平台运行与安装包验收由后续环境执行。
 
 ## 已实现功能
+
+- 模型设置：已保存供应商卡片、编辑/删除、当前模型和思考等级；第三方目录和自定义API两种表单，API密钥默认遮挡，编辑留空保留。目录与能力由KMH生成，页面仅接收凭据状态。保存后下一次模型调用读取最新配置。
+- 模型表单控件：六处下拉入口复用ModelSelect封装的原生下拉框，16px图标、10px图标盒边距、38px文字预留；下箭头与密钥眼睛图标中心距右侧18px、垂直居中，禁用态弱化。
 
 - 整理页采用“本地截图 → 补分析 → 任务关联”流水线布局，宽窗口横向排列、窄窗口纵向排列；按钮与进度条沿用棕色。保存增量与关联结果变化触发一次流动，动画结束即清理光点，减弱动态偏好保留静态状态；关联节点明确显示其时间线/实际执行日期。后台调度与单操作按钮沿用现有行为，见[流水线布局task](../docs/spec/screenshot-analysis-backfill/tasks/task-backfill-pipeline.md)。
 
@@ -79,9 +95,11 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 
 publish首次启动在`~/.scening/observer.yaml`保存用户配置，默认活动、总结和KMH数据归`~/.scening`，正式截图归`~/.scening/snapshots`，桌面缓存归`~/.scening/desktop/.cache`，日志归`~/.scening/logs`。已有用户配置原文保留，`OBSERVER_CONFIG`可显式选择另一份配置。`~`由Python与桌面统一展开为当前用户主目录。
 
-发布构建仅读取 [公开模板 observer.yaml](../observer.yaml)。首次创建用户配置时保留中文注释。现有Python/KMH运行环境按原配置准备。实施、真实测试和远程构建边界见[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
+发布构建仅读取 [公开模板 observer.yaml](../observer.yaml)。首次创建用户配置时保留中文注释。publish 安装包包含独立 Python、感知模块、Node 和基于 DeepSeek Harness 插件打包的 Agent 运行时。应用从自身资源定位运行环境。首次运行时按提示授予系统权限，需要分析时在“设置 → 模型”填写 API 密钥。包内运行环境和 ZIP 校验见 [GitHub Release](#github-release)。实施、真实测试和远程构建边界见[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
 
 ## 更新记录
+
+- 2026-11-05：补齐publish包的独立Python与截图/OCR依赖，后端从安装包自身定位；真实迁移、设置读写、KMH调用和ZIP回读见[Release运行环境任务](../docs/spec/screen-observer-p0/tasks/task-portable-runtime.md)。
 
 - 2026-11-04：新增dev/publish构建模式、用户配置首次创建与`~`路径支持；[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)已完成本地验收，Python58项、桌面99项及双模式编译通过。
 
@@ -116,6 +134,8 @@ publish首次启动在`~/.scening/observer.yaml`保存用户配置，默认活�
 界面以记录中的钟点排列，活动条数表示已保存记录的数量；采样活动区间的统计含义继续沿用现有观察模型。客户端读取home、截图和配置，Python继续独占正式数据写入。自动更新与手动刷新均读取完整的已落盘文件。桌面间隔从当前所选配置读取，显式旧配置缺少desktop块时沿用项目YAML该块。
 
 ## 检查和构建
+
+KMH来自项目内`vendor/kmh-scening/runtime.tar.gz`固定运行快照；构建校验SHA256后解包到`desktop/.cache/kmh-runtime`，再纳入应用资源。快照包含scening、生产依赖、供应商目录和独立Node，当前适用macOS Apple Silicon；源码来源版本与哈希见同目录`snapshot.json`，第三方许可证随依赖包保留。同步上游时设置`KMH_SOURCE_ROOT=<kmh-repo>`、`KMH_NODE_BINARY=<portable-node>`，运行`desktop/scripts/run.sh run models:sync`重建项目内快照。普通构建直接读取固定快照。
 
 版本采用三段整数：普通Git提交将末段加1（如0.1.10→0.1.11）；Release准备提交将中段加1、末段归零（如0.1.11→0.2.0），同次提交升号一次。对照上一提交准备本次版本，已有正确递增时将版本与锁文件直接纳入该次提交；需要准备版本时使用`desktop/scripts/run.sh version patch --no-git-tag-version`，Release准备时使用`desktop/scripts/run.sh version minor --no-git-tag-version`。
 
@@ -221,9 +241,9 @@ Python默认凑满三份候选后分析一张时间标签拼图，客户端卡�
 
 推送三段版本标签（例如`v0.2.0`）会触发`.github/workflows/release.yml`，在macOS arm64环境检查代码并明确调用`build:publish`。标签须与`desktop/package.json`版本一致；Release准备版本遵循中段加1、末段归零。
 
-流程读取实际应用包中的主进程、版本和构建标记，核对publish模式、arm64架构及产品图标；ZIP生成后重新解压回读，再上传ZIP、JSON清单和SHA256SUMS。核对全部通过后创建Release；相同标签重试更新对应附件。工作流使用当前仓库GITHUB_TOKEN，发布job单独声明contents:write。
+流程读取实际应用包中的主进程、版本和构建标记，核对publish模式、arm64架构及产品图标，并实际启动包内Python与KMH；ZIP生成后重新解压再启动核验，再上传ZIP、JSON清单和SHA256SUMS。核对全部通过后创建Release；相同标签重试更新对应附件。工作流使用当前仓库GITHUB_TOKEN，发布job单独声明contents:write。
 
-Actions里的“Run workflow”要求填写候选标签，`publish_release`默认false，仅构建并保留候选附件；正式手动发布需选择true并使用已有标签。本地`npm run build`继续默认dev；下载客户端的Python/KMH运行准备遵循根README，`OBSERVER_PROJECT_ROOT`可选择已准备的工作区。当前流程沿用现有Apple签名配置，产物为macOS Apple Silicon客户端ZIP。
+Actions里的“Run workflow”要求填写候选标签，`publish_release`默认false，仅构建并保留候选附件；正式手动发布需选择true并使用已有标签。本地`npm run build`继续默认dev；发布包内置独立Python、scening源码及截图/OCR依赖，KMH快照在构建时解压并连同Node进入应用Resources；应用从自身资源启动，用户填写自己的模型API密钥。`OBSERVER_PROJECT_ROOT`用于开发模式。当前流程沿用现有Apple签名配置，产物为macOS Apple Silicon客户端ZIP。
 
 ```sh
 git push origin main
@@ -232,3 +252,5 @@ git push origin v0.2.0
 ```
 
 源码入口：`src/release-artifacts.ts`。检查命令：`npm run release:check-tag -- --tag v0.2.0`，`npm run release:verify -- --tag v0.2.0`；`release:archive`先核验再压缩回读。首次配置与证据见[GitHub Release任务](../docs/spec/screen-observer-p0/tasks/task-github-release.md)。
+
+独立Python构建工具固定为uv 0.9.18，Python为3.12.11；`requirements-runtime.lock`从根`requirements.txt`生成并记录依赖哈希。首次构建联网准备依赖，安装后的应用使用包内资源。发布候选可通过`npm run build:publish -- --output-root ../tmp/portable-client-build`隔离生成，正式本机入口保留。

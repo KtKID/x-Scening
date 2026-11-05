@@ -12,6 +12,7 @@ import {
   settingsValue,
 } from '../../shared/settings';
 import { TaskTypePresets } from './TaskTypePresets';
+import { ModelSettingsEditor } from './ModelSettingsEditor';
 
 type LoadState =
   | { status: 'loading' }
@@ -144,6 +145,10 @@ export function SettingsEditor({
 
   return (
     <div className="settings-editor" aria-label="运行配置">
+      <ModelSettingsEditor
+        key={load.status === 'ready' ? load.snapshot.config.home : ''}
+        bridge={bridge}
+      />
       <div className="settings-toolbar">
         <div>
           <strong>运行配置</strong>

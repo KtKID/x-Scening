@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ModelSettings, ModelSelection, SaveProvider } from './models';
 import type { LocalBuildStatus } from '../version-check/protocol';
 import {
   ActivityEventSchema,
@@ -198,6 +199,10 @@ export const BackgroundsReplySchema = z.strictObject({
 });
 export type BackgroundsReply = z.infer<typeof BackgroundsReplySchema>;
 export type ObserverBridge = {
+  readModelSettings: () => Promise<ModelSettings>;
+  saveModelProvider: (request: SaveProvider) => Promise<ModelSettings>;
+  selectModel: (request: ModelSelection) => Promise<ModelSettings>;
+  removeModelProvider: (provider: string) => Promise<ModelSettings>;
   readDailyReviewState: (
     query: z.infer<typeof DailyReviewDayQuerySchema>,
   ) => Promise<DailyReviewView>;

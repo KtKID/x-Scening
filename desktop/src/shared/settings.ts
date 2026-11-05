@@ -129,17 +129,21 @@ export const settingGroups = [
     ],
   },
   {
-    title: '存储与模型',
+    title: '存储与高级设置',
     description:
-      '相对路径以当前配置文件所在目录为基准；模型与思考等级由所选 KMH profile 维护。',
+      '相对路径以当前配置文件所在目录为基准；桌面分析使用内置 KMH scening。',
     fields: [
       ['home', '活动与总结目录', '保存每日记录、总结与 KMH 运行数据。'],
       ['screenshotDir', '截图保存目录', '保存原始 JPEG 与分析拼图。'],
-      ['kmhLauncher', 'KMH 启动脚本', '外部 KMH 启动脚本的位置。'],
+      [
+        'kmhLauncher',
+        'KMH 启动脚本',
+        '命令行及其他 profile 使用的外部启动脚本。',
+      ],
       [
         'kmhProfile',
         'KMH profile 名称',
-        '使用英文字母、数字、下划线和连字符；API Key沿用本机私有配置。',
+        '桌面默认 scening，模型与密钥在上方配置；其他 profile 使用外部入口。',
       ],
     ],
   },

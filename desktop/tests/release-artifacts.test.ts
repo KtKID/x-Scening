@@ -43,6 +43,27 @@ async function fixture(
   try {
     await mkdir(path.join(input, 'out/main'), { recursive: true });
     await mkdir(resources, { recursive: true });
+    // 此夹具检查发布编排与失败传播；完整运行环境使用真实迁移包另行验收。
+    const python = path.join(resources, 'python-runtime/.venv/bin');
+    const scening = path.join(resources, 'python-runtime/src/scening');
+    const dsh = path.join(
+      resources,
+      'kmh-runtime/node_modules/@deepseek-ai/dsh/lib',
+    );
+    await mkdir(python, { recursive: true });
+    await mkdir(scening, { recursive: true });
+    await mkdir(dsh, { recursive: true });
+    await writeFile(path.join(scening, 'observer_config.py'), '# unit fixture');
+    await writeFile(path.join(dsh, 'bin.js'), '// unit fixture');
+    await writeFile(path.join(resources, 'kmh-runtime/catalog.json'), '{}');
+    await writeFile(path.join(python, 'python'), '#!/bin/sh\nexit 0\n', {
+      mode: 0o755,
+    });
+    await writeFile(
+      path.join(resources, 'kmh-runtime/node'),
+      '#!/bin/sh\necho "@kmh/scene-observer"\n',
+      { mode: 0o755 },
+    );
     await mkdir(path.join(app, 'Contents/MacOS'), { recursive: true });
     await writeFile(
       path.join(app, 'Contents/Info.plist'),
@@ -87,6 +108,16 @@ await test('release: 标签格式和源码版本必须一致', () => {
   assert.throws(() => checkReleaseTag('main', '0.2.0'));
   assert.throws(() => checkReleaseTag('v0.2.0;echo bad', '0.2.0'));
 });
+
+await test('release: 内置运行环境缺失时拒绝发布', { skip: !mac }, () =>
+  fixture(async (_root, app) => {
+    await rm(path.join(app, 'Contents/Resources/python-runtime'), {
+      recursive: true,
+      force: true,
+    });
+    await assert.rejects(verifyMacRelease(app, 'v0.2.0'), /内置/);
+  }),
+);
 
 await test('release: 实际编译内容要求唯一publish注入点', () => {
   checkPublishMode('const mode = RuntimeModeSchema.parse("publish");');

@@ -129,10 +129,16 @@ class KMHInterpreter:
         成功、失败、超时和用户取消共用整组回收；取消后部分输出按取消结束。
         正常段后续调用可复用解释器，关闭的分析段由新解释器承接。
         """
-        node=shutil.which('node')
-        if self.command is None and (node is None or not self.config.kmhLauncher.is_file()):
+        bundled=self.config.kmhProfile=='scening'
+        node=(os.environ.get('SCENING_KMH_NODE') if bundled else None) or shutil.which('node')
+        launcher=Path((os.environ.get('SCENING_KMH_LAUNCHER') if bundled else None) or self.config.kmhLauncher)
+        if self.command is None and (node is None or not launcher.is_file()):
             raise RuntimeError('KMH启动器或Node不可用')
-        command=self.command or [node,str(self.config.kmhLauncher),'dsh','--profile',self.config.kmhProfile]
+        command=self.command or [node,str(launcher),'dsh','--profile',self.config.kmhProfile]
+        # 每次调用读取桌面保存的KMH补丁；专用工具补丁后置，保持本轮文件契约。
+        model_patch=self.home/'kmh'/'observer-model.patch.yml'
+        if model_patch.is_file():
+            command=[*command,'--patch',str(model_patch)]
         if patch_path is not None:
             command=[*command,'--patch',str(patch_path)]
         env=dict(os.environ,KMH_HOME=str(self.home/'kmh'))

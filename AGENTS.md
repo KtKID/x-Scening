@@ -20,7 +20,7 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 | --- | --- |
 | Python / MSS / pynput | 缓存各屏最新帧，根据键鼠坐标与近期活动选屏；应用按系统窗口层级、目标屏矩形与窗口PID读取，异常或切换竞态记未知。 |
 | Python / Pillow | 实时选图用 RGB 平方差，正式候选保持原分辨率 JPEG；后续活动入口沿用平均 RGB 差去重，正式候选保持原采集像素。 |
-| KMH scening | 图片交由 KMH 专用 profile，通过read_image与submit_observation提交结构化结果，默认 minimax-cn / MiniMax-M3 / high；中国区API Key在home/kmh/.env配置。 |
+| KMH scening | 图片交由 KMH 专用 profile，通过read_image与submit_observation提交结构化结果，默认 minimax-cn / MiniMax-M3 / high；API 密钥在客户端“设置 → 模型”中配置。 |
 | 隐私闸门 | 候选发布与补分析提交前复用同一本地判定（L0应用黑名单 + Vision OCR fast 规则）。实时事件与定时图暂存内存JPEG，选中后以内存OCR检查，通过再保存，敏感帧释放内存；自动积压与手动补分析确认敏感后删除原图和采集信息、重建索引，OCR失败保留待重试；规则与验证见[敏感判定规则](docs/design/screenshot-sensitive-rules-20261101.md)。 |
 | Scheduler / LLM | 每 30 分钟生成总结，运行异常和空状态写日志。 |
 | JSON / Pydantic | 当前活动与总结结构在src/scening/activity_memory.py定义；每日一份分析记录，新分析追加到列表，同日无变化只更新最后一条记录的 `end`；总结也使用 JSON 保存。 |
@@ -53,7 +53,7 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 10. 每日分析记录使用 JSON 列表，新分析 append，无变化只改末条 end；跨日重新分析并写入新一天文件。新记录 screenshot/mini 同指派生拼图，frames保留三张原始JPEG及采集元信息，旧记录继续可读。文件写入失败或无法读取时保留原文件并写 logs。字段与提交机制见 [每日记录设计](docs/spec/screen-observer-p0/tech-design.md#records)。
 
 11. 活动入口采用多屏缓存与交互选屏；状态、异常、空状态写项目 logs。终端与 zellij 即时打印秒级时间、正式候选路径、屏幕、分析/合并/总结进度。候选队列有界；睡眠、采集故障、布局变化和过载的中断代次随候选传递，防止跨缺口延长活动。桌面壳按feat11只读展示数据并控制现有采集，停止先通知生产线程结束并取消在途模型任务，当前短文件提交收尾；Python继续独占正式记录写入。
-12. 图片分析使用外部 KMH 的 `profiles/scening`，默认 minimax-cn / MiniMax-M3 / high，通过中国区API Key调用；headless每次独立调用，解释器自动提供本轮输入与独占结果位置。任务携带已保存三帧拼图及逐帧时间、应用、屏幕、间隔；KMH的read_image读取图片，submit_observation提交结构化结果，read读取总结JSON。半小时总结按窗口内每次分析的start/end/app/analysis生成文字时间表，通过read汇总；新总结仅保存这四项时间表，图片证据归原活动记录与截图目录。工具结果保存在活动observation，兼容三段正文保存在analysis；外部Zod为结果协议权威，受控生成Python及桌面契约。配置、凭据与真实验证见 [KMH 配置说明](src/scening/README.md#kmh-configuration)和[专用profile接入task](docs/spec/screen-observer-p0/tasks/task-scening-profile.md)。
+12. 图片分析使用基于 DeepSeek Harness 插件打包的内置 Agent 运行时，默认 minimax-cn / MiniMax-M3 / high，凭据由客户端设置维护；headless每次独立调用，解释器自动提供本轮输入与独占结果位置。任务携带已保存三帧拼图及逐帧时间、应用、屏幕、间隔；KMH的read_image读取图片，submit_observation提交结构化结果，read读取总结JSON。半小时总结按窗口内每次分析的start/end/app/analysis生成文字时间表，通过read汇总；新总结仅保存这四项时间表，图片证据归原活动记录与截图目录。工具结果保存在活动observation，兼容三段正文保存在analysis；外部Zod为结果协议权威，受控生成Python及桌面契约。配置、凭据与真实验证见 [KMH 配置说明](src/scening/README.md#kmh-configuration)和[专用profile接入task](docs/spec/screen-observer-p0/tasks/task-scening-profile.md)。
 13. 技术设计必须用时序图展示主要流程，明确模块调用顺序、关键分支和文件保存顺序；图文同步维护。
 14. Python 脚本采用中文注释；关键函数详细说明用途、参数、返回值、异常、保存顺序及副作用。验证数据使用项目 tmp 下的独占 home；供用户查看的验证截图保留在 tmp，自动测试的合成数据在结束后清理，正式 home 保存用户要求的运行产物。
 15. 所有可调数值统一维护于 observer.yaml，包括 scening 与 analysis 策略块；默认值只在 YAML 提供，Pydantic 校验启动快照。采集频率与下游 sampleIntervalSeconds 分别配置，算法/文件格式常量按语义保留。
@@ -100,6 +100,8 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 - [系统应用身份 task](docs/spec/screen-observer-p0/tasks/task-system-app-identity.md)：Python统一提供逐帧应用，卡片/详情/筛选/统计/周期总结采用采集身份；模型app_tags保留原始结果与工具参数；真实应用切换和双屏验证。
 - [Electron 桌面客户端](desktop/README.md)：黄纸底时间线、测试数据、当日概览/详情、只读 scening 接入、项目内环境及构建方式。
 - [完整设置 task](docs/spec/screen-observer-p0/tasks/task-settings.md)：设置页编辑全部运行配置，优先展示分析与截图频率，统一保存和清除修改，采集参数在下次开始采集时读取。
+- [Release 运行环境](desktop/README.md#github-release)：publish应用内置独立Python与截图/OCR依赖，KMH及Node沿用运行快照；从应用自身资源启动，迁移及ZIP解压后核验运行环境。
+- [模型设置](src/scening/README.md#kmh-配置与模型设置)：设置“模型”维护供应商与API密钥、图片模型及思考等级；目录读取KMH，内置scening运行快照与Node随应用打包，后续调用读取最新模型patch。
 
 - [scening Python 实现](src/scening/README.md)：当前多屏采集到 JPEG 候选、兼容字段、配置和运行方式。
 - [每日温馨回顾 task](docs/spec/screen-observer-p0/tasks/task-daily-review.md)：当日概览“总结”按钮每次汇总当天周期总结，等待时禁用，回复后弹窗；总结页分“半小时总结/每日总结”双tab，每日tab读取已保存回顾并支持原地重新生成；独立Python模块将完整回复保存到home/daily-reviews，每天一份。

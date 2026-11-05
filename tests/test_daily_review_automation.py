@@ -1,24 +1,58 @@
 """每日自动总结：配置、自然日、输入和持久状态的独立验证。"""
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import yaml
+
 from scening.observer_config import DailyReviewConfig, load_config
 
 ROOT = Path(__file__).resolve().parents[1]
+# 固定本组用例的输入策略；状态断言和本机保存的偏好分别使用各自配置。
+TEST_DAILY_REVIEW = dict(maxChars=600, scheduledTime='03:00', maxAutoAttempts=3,
+                         retryIntervalSeconds=60, checkIntervalSeconds=30)
+SCHEDULE_TIMES = ('00:00', '00:17', '03:00', '12:34', '23:59')
 
 class DailyConfigTests(unittest.TestCase):
-    def test_time_defaults_and_legacy(self):
-        config=load_config()
-        self.assertEqual(config.dailyReview.scheduledTime,'03:00')
-        legacy=DailyReviewConfig.model_validate({'maxChars':321})
-        self.assertEqual(legacy.scheduledTime,'03:00')
-        self.assertEqual(legacy.maxChars,321)
-        self.assertEqual(legacy.maxAutoAttempts,3)
+    def setUp(self):
+        """建立完整临时配置，时间与策略预期由本组夹具明确提供。"""
+        base=ROOT/'tmp/daily-review-automation';base.mkdir(parents=True,exist_ok=True)
+        self.tmp=tempfile.TemporaryDirectory(dir=base);self.addCleanup(self.tmp.cleanup)
+        self.home=Path(self.tmp.name)
+        self.path=self.home/'observer.yaml'
+        self.values=load_config().with_overrides(
+            home=self.home/'home', screenshotDir=self.home/'screens',
+            dailyReview=TEST_DAILY_REVIEW).model_dump(mode='json')
+
+    def write(self, scheduled_time):
+        """保存调用方指定时间，供真实配置读取与旧格式补齐消费。"""
+        self.values['dailyReview']['scheduledTime']=scheduled_time
+        self.path.write_text(yaml.safe_dump(self.values,allow_unicode=True))
+
+    def test_selected_time_is_saved_and_reloaded(self):
+        for scheduled_time in SCHEDULE_TIMES:
+            with self.subTest(scheduled_time=scheduled_time):
+                self.write(scheduled_time);before=self.path.read_bytes()
+                config=load_config(self.path)
+                self.assertEqual(config.dailyReview.scheduledTime,scheduled_time)
+                self.assertEqual(self.path.read_bytes(),before)
+
+    def test_legacy_policy_follows_isolated_defaults(self):
+        for scheduled_time in SCHEDULE_TIMES:
+            with self.subTest(scheduled_time=scheduled_time):
+                self.write(scheduled_time)
+                with patch('scening.observer_config.DEFAULT_CONFIG_PATH',self.path):
+                    legacy=DailyReviewConfig.model_validate({'maxChars':321})
+                self.assertEqual(legacy.model_dump(),{
+                    **TEST_DAILY_REVIEW,'scheduledTime':scheduled_time,'maxChars':321})
+
+    def test_invalid_scheduled_times_are_rejected(self):
         for value in ['24:00','3:00','03:60','',12]:
             with self.subTest(value=value),self.assertRaises(ValueError):
-                DailyReviewConfig.model_validate({**config.dailyReview.model_dump(),'scheduledTime':value})
+                DailyReviewConfig.model_validate({**TEST_DAILY_REVIEW,'scheduledTime':value})
 
 if __name__=='__main__': unittest.main()
 
@@ -26,7 +60,9 @@ class DayInputTests(unittest.TestCase):
     def setUp(self):
         base=ROOT/'tmp/daily-review-automation';base.mkdir(parents=True,exist_ok=True)
         self.tmp=tempfile.TemporaryDirectory(dir=base)
-        self.config=load_config().with_overrides(home=Path(self.tmp.name))
+        home=Path(self.tmp.name)
+        self.config=load_config().with_overrides(home=home,screenshotDir=home/'screens',
+                                                dailyReview=TEST_DAILY_REVIEW)
     def tearDown(self): self.tmp.cleanup()
     def write(self,folder,day,rows):
         p=self.config.home/folder/f'{day}.json';p.parent.mkdir(parents=True,exist_ok=True)
@@ -137,7 +173,42 @@ class StateTests(unittest.TestCase):
         self.assertEqual(list_due_days(self.config,now=now).days,['2026-11-01','2026-10-31'])
         self.assertTrue(inspect_day(self.config,'2026-11-01',now=now).canSummarize)
         self.assertFalse(inspect_day(self.config,'2026-11-02',now=now).canSummarize)
-        self.assertFalse(inspect_day(self.config,'2026-11-01',now=now.replace(hour=2)).canSummarize)
+
+    def test_configured_time_controls_due_boundaries(self):
+        """各合法时间均在指定时刻开始到期，历史候选遵守同一边界。"""
+        from scening.daily_review_state import inspect_day,list_due_days
+        self.periods();day='2026-11-01'
+        for scheduled_time in SCHEDULE_TIMES:
+            hour,minute=map(int,scheduled_time.split(':'))
+            due=datetime.fromisoformat('2026-11-02T00:00:00+08:00').replace(hour=hour,minute=minute)
+            config=self.config.with_overrides(dailyReview={
+                **TEST_DAILY_REVIEW,'scheduledTime':scheduled_time})
+            for offset,expected in [(-timedelta(microseconds=1),False),
+                                    (timedelta(0),True),(timedelta(seconds=1),True)]:
+                with self.subTest(scheduled_time=scheduled_time,offset=offset):
+                    now=due+offset
+                    view=inspect_day(config,day,now=now)
+                    self.assertEqual(view.dueAt,due)
+                    self.assertEqual(view.canSummarize,expected)
+                    self.assertEqual(day in list_due_days(config,now=now).days,expected)
+
+    def test_saved_time_reorders_future_due_checks(self):
+        """同一日资料在重载提前或延后的设置后立即按新时刻判定。"""
+        from scening.daily_review_state import inspect_day,list_due_days
+        self.periods();day='2026-11-01'
+        now=datetime.fromisoformat('2026-11-02T02:00:00+08:00')
+        path=self.config.home/'observer.yaml'
+        values=self.config.model_dump(mode='json');snapshots=[]
+        for scheduled_time,expected in [('03:00',False),('00:17',True),('23:59',False)]:
+            with self.subTest(scheduled_time=scheduled_time):
+                values['dailyReview']['scheduledTime']=scheduled_time
+                path.write_text(yaml.safe_dump(values,allow_unicode=True))
+                config=load_config(path);snapshots.append(config)
+                self.assertEqual(config.dailyReview.scheduledTime,scheduled_time)
+                self.assertEqual(inspect_day(config,day,now=now).canSummarize,expected)
+                self.assertEqual(day in list_due_days(config,now=now).days,expected)
+        self.assertEqual(snapshots[0].dailyReview.scheduledTime,'03:00')
+        self.assertEqual(snapshots[1].dailyReview.scheduledTime,'00:17')
 
     def test_actual_process_preserves_long_error(self):
         from scening.daily_review_state import generate_day,inspect_day

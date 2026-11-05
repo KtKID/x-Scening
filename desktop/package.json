@@ -1,10 +1,14 @@
 {
   "name": "x-scening-desktop",
-  "version": "0.2.3",
+  "version": "0.2.6",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
+    "models:sync": "node scripts/prepare-kmh.mjs --sync",
+    "predev": "node scripts/prepare-kmh.mjs",
+    "prestart": "node scripts/prepare-kmh.mjs",
     "setup:electron": "node node_modules/electron/install.js",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
@@ -22,10 +26,19 @@
     "build:publish": "node --import tsx src/version-check/build.ts --mode publish",
     "release:check-tag": "node --import tsx src/release-artifacts.ts check-tag",
     "release:verify": "node --import tsx src/release-artifacts.ts verify",
-    "release:archive": "node --import tsx src/release-artifacts.ts archive",
-    "models:sync": "node scripts/prepare-kmh.mjs --sync"
+    "release:archive": "node --import tsx src/release-artifacts.ts archive"
   },
   "build": {
+    "extraResources": [
+      {
+        "from": ".cache",
+        "to": ".",
+        "filter": [
+          "kmh-runtime/**/*",
+          "python-runtime/**/*"
+        ]
+      }
+    ],
     "appId": "local.x-scening.desktop",
     "productName": "x-scening",
     "executableName": "Observer",
@@ -58,6 +71,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@eslint/js": "9.39.5",
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",
@@ -72,7 +86,6 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.1",
-    "vite": "8.3.5",
-    "@electron/asar": "3.4.1"
+    "vite": "8.3.5"
   }
 }

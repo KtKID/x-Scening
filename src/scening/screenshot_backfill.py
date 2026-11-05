@@ -13,7 +13,7 @@ from scening.activity_memory import ActivityMemory, EVENT_LIST, captured_app_nam
 from scening.analysis_batch import compose_batch, frame_metadata
 from scening.kmh_interpreter import KMHInterpreter
 from scening.observation_generated import ObservationResult
-from scening.observer_config import DEFAULT_CONFIG_PATH, load_config
+from scening.observer_config import load_config
 from scening.runtime_control import AnalysisCancelled, SignalCancellation
 from scening.screenshot_index import rebuild_day
 from scening.screenshot_queue import analysis_lock, legacy_samples, load_analysis_frame, pending_images
@@ -196,7 +196,7 @@ def backfill_day(config, day, *, interpreter=None, cancel_event=None, on_progres
 def main():
     """扫描或执行历史补跑CLI；SIGINT/SIGTERM取消当前模型并保留成功报告。"""
     parser = argparse.ArgumentParser(description='根据截图索引补分析今天或历史日期')
-    parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument('--config', type=Path)
     parser.add_argument('--day', required=True)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()

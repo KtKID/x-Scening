@@ -40,20 +40,20 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 
 - 主导航“补分析”：独立页面选择日期，显示本地截图总数、已分析与待分析数量，一个按钮开始/停止/继续补分析。默认昨天，支持今天和历史日期，未来日期禁用；读取正式报告frames判定“全部已分析”，空日期单列。查看与切换日期保持零模型调用，切换页面后台继续，退出取消自有工作并保留成功结果。开启实时分析会先从当天最早未分析图补起，积压后处理新图；两个入口共用日锁协调，设计与验证见[当天队列task](../docs/spec/screenshot-analysis-backfill/tasks/task-today-analysis-queue.md)。
 - 应用来源统一为Python系统采集：卡片和详情按`frames[].app`首次出现顺序去重，旧单图沿用顶层`app`；多应用活动可分别匹配每个应用筛选，应用分布按每条涉及该应用的活动计一次。未知身份单列为“未知应用”，使用应用数统计已识别名称。模型`observation.app_tags`保留原始结果，展示与统计消费采集身份；周期总结采用相同口径。实现及应用切换、真实双屏与窗口验证见[系统应用身份任务](../docs/spec/screen-observer-p0/tasks/task-system-app-identity.md)。
-- 设置 → 运行配置：完整编辑 `observer.yaml` 的运行配置和任务类型。分析与截图频率优先展示，其他参数按分析与总结、存储与模型、分析拼图、屏幕与截图策略、键鼠与画面选取、超时与进程控制分组；每项有中文用途和单位说明。
+- 设置 → 运行配置：完整编辑当前个人配置的运行参数和任务类型。分析与截图频率优先展示，其他参数按分析与总结、存储与模型、分析拼图、屏幕与截图策略、键鼠与画面选取、超时与进程控制分组；每项有中文用途和单位说明。
 - 设置中的“保存”统一写入本次配置草稿，保留 YAML 中文注释及文件权限；数值、路径、时间、任务类型和拼图几何条件通过现有 Python 权威模型校验。文件被外部修改、无效输入或写入失败时提示原因并保留草稿。“清除修改”恢复最近成功读取或保存的值，同时清空新类型输入；客户端内切换页面保留草稿。采集参数下次开始采集读取，每日回顾字数下次生成读取，桌面刷新周期随下一轮状态读取更新。实现与验证见[完整设置 task](../docs/spec/screen-observer-p0/tasks/task-settings.md)。
 - 设置 → 预设 → 任务类型：增删类型后使用统一的“保存”按钮，默认工作、学习、娱乐、游戏。活动卡片和详情按 `observation.task_types` 显示全部已选类型，多项和长名称自动换行；空列表与旧记录显示“待分类”，历史自定义名称继续保留。展示与真实窗口验证见[卡片类型任务](../docs/spec/screen-observer-p0/tasks/task-task-type-cards.md)。
 - 三栏：侧边导航、每日时间线、右侧概览。卡片选中切换活动详情，关闭按钮或 Escape 返回概览。
 - 日期前后切换、日历、今天、应用筛选、手动刷新；同小时的密集活动顺序排列，单时间点活动保持可读。
 - 测试模式中，标题、正文、总结均以【测试数据】开头；虚拟记录仅在内存生成，截图使用明确标记的占位预览。
 - 测试预览提供明镜宣传录屏用的今日总结，内容围绕客户端脱敏、OCR判别、模型分析与今日总结流程；活动、周期总结与当日档案保持同一主题，概览“展示总结”和“回顾 → 每日总结”共用完整虚构正文。见[宣传演示task](../docs/spec/screen-observer-p0/tasks/task-demo-daily-review.md)。
-- 设置 → 本地记录：读取 `observer.yaml` 的 home / screenshotDir，显示按天 JSON 活动、周期总结和原始截图，支持相对及历史绝对引用；截图支持放大。
+- 设置 → 本地记录：读取当前配置的 home / screenshotDir，显示按天 JSON 活动、周期总结和原始截图，支持相对及历史绝对引用；截图支持放大。
 - 空日期、坏JSON、无效活动、缺图、配置错误分别显示；活动/总结分别读取，支持修复文件后刷新。
 - 历史分析的卡片标题从可见事实短句派生，正文预览整理格式，详情保留完整原文；单次观察显示到秒，同分钟短区间保留秒级起止。真实6条数据的适配证据见 [10月22日卡片任务](../docs/spec/screen-observer-p0/tasks/task-timeline-real-records.md)。
 - 窄窗口保留概览与总结入口，点击卡片显示右侧详情抽屉。
 - macOS工具栏提供“开始截屏 / 停止截屏”和实际进程状态；开始按分析开关接入完整或仅截图流程，并切换到今天的本地记录。同项目、同home的独立进程会显示完整/仅截屏模式，重复启动沿用现有进程。
 - 工具栏“开启分析”开关默认开启，本次客户端保留选择。关闭后继续保存JPEG，开启后生成活动与总结；采集中切换在同一Python进程内生效，关闭时取消当前分析和总结、保留原图与已提交记录，截图持续；默认预算下1秒内确认完成。已保存记录继续可读。
-- 本地记录按 `observer.yaml` 的 `desktop.refreshIntervalSeconds` 自动更新（项目默认2秒），活动追加、末条end和总结均会更新；保留日期、筛选和仍存在的详情，手动刷新继续提供即时重读。
+- 本地记录按当前配置的 `desktop.refreshIntervalSeconds` 自动更新（项目默认2秒），活动追加、末条end和总结均会更新；保留日期、筛选和仍存在的详情，手动刷新继续提供即时重读。
 
 停止截屏会优先通知采集线程结束生产，取消当前KMH任务并核对整个任务进程组回收，当前短文件提交完成后确认停止；分析切换期间停止按钮保持可操作。采集状态通过事件即时推送，记录列表保留原刷新节奏。macOS关闭窗口保留采集，退出应用会等待本客户端启动的进程退出；独立进程由显式“停止截屏”控制。启动与退出错误显示原因，运行输出保存在 `desktop/.cache/capture.log`，原有日志继续位于项目logs。独立进程的状态依据锁持有者与进程身份查询，退出码以独立进程原日志为准。
 
@@ -75,11 +75,11 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 
 ## 构建模式与数据目录
 
-本地`npm run build`使用`dev`模式；GitHub Actions的Release事件或tag构建自动使用`publish`模式。模式随客户端编译产物保存，本地打包测试继续读取项目`observer.yaml`和项目内home。手动验证发布构建可执行`npm run build:publish`。
+本地`npm run build`使用`dev`模式；GitHub Actions的Release事件或tag构建自动使用`publish`模式。模式随客户端编译产物保存，dev 首次启动使用 [公开默认值](../observer.yaml) 和 [开发目录模板](../observer.defaults_dev.yaml) 生成项目根目录的 `observer_dev.yaml`，之后直接读取这份由 Git 忽略的个人配置。默认 home 为 `./home`，截图目录为 `./data/snapshot-v1`。手动验证发布构建可执行`npm run build:publish`。
 
 publish首次启动在`~/.scening/observer.yaml`保存用户配置，默认活动、总结和KMH数据归`~/.scening`，正式截图归`~/.scening/snapshots`，桌面缓存归`~/.scening/desktop/.cache`，日志归`~/.scening/logs`。已有用户配置原文保留，`OBSERVER_CONFIG`可显式选择另一份配置。`~`由Python与桌面统一展开为当前用户主目录。
 
-路径覆盖在根目录`observer.publish.yaml`维护；其他参数统一从`observer.yaml`取得。模板随构建编入客户端，首次创建用户配置时保留中文注释，并将KMH启动器相对路径按原配置位置固定。现有Python/KMH运行环境按原配置准备。实施、真实测试和远程构建边界见[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
+发布构建仅读取 [公开模板 observer.yaml](../observer.yaml)。首次创建用户配置时保留中文注释。现有Python/KMH运行环境按原配置准备。实施、真实测试和远程构建边界见[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
 
 ## 更新记录
 
@@ -128,7 +128,7 @@ desktop/scripts/run.sh exec -- tsx tests/capture.e2e.ts
 desktop/scripts/run.sh run package
 ```
 
-`desktop/scripts/run.sh run build`完成编译与打包，统一发布到`desktop/release/mac-arm64/x-scening.app`；`run package`复用同一流程。每次构建更新这个固定入口，应用包核对完整并就绪后发布检测标记。`out/`保留编译中间结果，`run start`用于开发预览；正式使用从固定应用入口启动。构建时记录当前项目根供本地应用读取；环境变量 `OBSERVER_PROJECT_ROOT`、`OBSERVER_CONFIG` 可显式选择其他项目根或配置文件。源码采用三平台 Electron API；本轮平台运行证据以 task 为准。
+`desktop/scripts/run.sh run build`完成编译与打包，统一发布到`desktop/release/mac-arm64/x-scening.app`；`run package`复用同一流程。每次构建更新这个固定入口，应用包核对完整并就绪后发布检测标记。`out/`保留编译中间结果，`run start`用于开发预览；正式使用从固定应用入口启动。本地客户端启动时按应用位置定位项目根。环境变量 `OBSERVER_PROJECT_ROOT`、`OBSERVER_CONFIG` 可显式选择其他项目根或配置文件。源码采用三平台 Electron API；本轮平台运行证据以 task 为准。
 
 运行中的客户端每60秒检查新构建，提示中点击“重启并更新”即可安全收尾并自动打开固定入口的新版本。等待时显示“正在重启…”，失败保留当前窗口并显示完整原因；见[一键更新task](../docs/spec/screen-observer-p0/tasks/task-local-client-restart.md)。
 

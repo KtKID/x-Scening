@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 from scening.activity_memory import EVENT_LIST
-from scening.observer_config import DEFAULT_CONFIG_PATH, load_config
+from scening.observer_config import load_config
 
 # 正式原图的既有文件格式；事件临时目录和派生 batch 图各自独立。
 ORIGINAL_NAME = re.compile(r'^(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})_m[1-9]\d*_[A-Za-z0-9_-]+\.jpg$')
@@ -122,7 +122,7 @@ def main(argv=None):
     命令读取既有配置和报告，输出索引位置与数量；采集及模型调用保持关闭。
     """
     parser = argparse.ArgumentParser(description='根据分析报告 frames 重建单日截图 index.json')
-    parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument('--config', type=Path)
     parser.add_argument('--home', type=Path)
     parser.add_argument('--screenshot-dir', type=Path)
     parser.add_argument('--day', required=True)

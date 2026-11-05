@@ -35,7 +35,7 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 
 三个职责由运行调度器衔接，解释结果与截图元信息合成为统一的 `ActivityEvent`。后续来源接入沿用该契约，保持观察、理解、记录各自的职责。字段与数据归属见 [每日记录设计](docs/spec/screen-observer-p0/tech-design.md#records)。
 
-配置入口为项目根目录 [observer.yaml](observer.yaml)，每个字段旁的原生 `#` 注释提供中文用途、单位和值域说明，字段及值域见 [配置设计](docs/spec/screen-observer-p0/tech-design.md#一份配置明确生效时机d02)。`--config`选择完整配置，显式CLI参数临时覆盖，修改后重启生效；数值默认值统一在YAML维护，源码通过Pydantic校验快照读取。
+公开模板为 [observer.yaml](observer.yaml)，dev 个人配置位于 Git 忽略的 `observer_dev.yaml`，publish 用户配置位于 `~/.scening/observer.yaml`。每个字段旁的原生 `#` 注释提供中文用途、单位和值域说明，字段及值域见 [配置设计](docs/spec/screen-observer-p0/tech-design.md#一份配置明确生效时机d02)。`--config`选择完整配置，显式CLI参数临时覆盖，修改后重启生效；数值默认值统一在YAML维护，源码通过Pydantic校验快照读取。
 
 应用代码统一位于 `src/scening/`；感知源码参考副本和来源清单归档在 `docs/task/archived-sensing/`，唤醒脚本归档在 `docs/task/archived-wake-word/`。测试位于 tests，验证产物位于 reports。
 

@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 /home/
 /logs/
+/observer_dev.yaml
 node_modules/
 dist/
 *.zip

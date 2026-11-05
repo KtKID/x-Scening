@@ -57,7 +57,7 @@ MSS 多屏最新帧缓存 ── 键鼠事件首尾（内存JPEG）── 差异
 
 ### 配置与数据
 
-配置入口是项目根的 [`observer.yaml`](../../observer.yaml)，每项中文注释说明用途、单位和值域。桌面“设置 → 分析与截图频率”提供常用频率字段；保存后停止并重新开始采集，加载新一轮固定配置。`--config` 选择文件，显式 CLI 参数临时覆盖文件中的值。
+源码默认读取项目根目录的个人配置 `observer_dev.yaml`。该文件尚未生成时，命令行使用 [公开默认值](../../observer.yaml) 与 [开发目录模板](../../observer.defaults_dev.yaml)。桌面“设置 → 分析与截图频率”提供常用频率字段；保存后停止并重新开始采集，加载新一轮固定配置。`--config` 选择文件，显式 CLI 参数临时覆盖文件中的值。
 
 开发构建沿用项目配置与`./home`。GitHub Release/tag构建采用publish模式，首次建立`~/.scening/observer.yaml`，默认home为`~/.scening`、截图为`~/.scening/snapshots`；后续保留用户配置。Python与桌面统一展开`~`，相对路径继续基于所选配置解析，CLI路径覆盖基于调用目录。桌面发布进程通过`SCENING_LOG_DIR`将Python日志放入用户数据目录的logs。模式和验证见[发布模式任务](../../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
 
@@ -90,7 +90,7 @@ MSS 多屏最新帧缓存 ── 键鼠事件首尾（内存JPEG）── 差异
 
 | 数据或用途 | 默认路径 | 日期、保存与保留规则 |
 | --- | --- | --- |
-| 运行配置 | `observer.yaml` | 项目默认入口；采集使用启动时读取的固定配置。 |
+| 运行配置 | dev 为 `observer_dev.yaml`，publish 为 `~/.scening/observer.yaml` | 采集使用启动时读取的配置快照。 |
 | 新正式截图 | `data/snapshot-v1/YYYY-MM-DD/YYYY-MM-DD_HH-MM-SS_mN_action.jpg`、`…_periodic.jpg` | 按采集日期建目录，保留原始像素；同秒重名追加序号；正式图持续保留。 |
 | 早期平铺截图 | `data/snapshot-v1/*.jpg` | 历史文件保留原名和原位置，按日索引同时扫描。 |
 | 实时事件缓存 | 进程内存中的压缩JPEG | before/after与定时候选先完成内存选图和隐私检查，通过后保存正式图；动作缓存沿`maxStoredActions`限制并释放引用。 |

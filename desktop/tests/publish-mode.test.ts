@@ -5,7 +5,10 @@ import test from 'node:test';
 import { parseDocument } from 'yaml';
 import { resolveBuildMode } from '../src/runtime-mode';
 import { resolveConfiguredPath } from '../src/main/config-paths';
-import { prepareRuntimePaths } from '../src/main/runtime-paths';
+import {
+  prepareRuntimePaths,
+  resolveSourceRoot,
+} from '../src/main/runtime-paths';
 import { readLocalDay } from '../src/main/data';
 
 const project = path.resolve(import.meta.dirname, '../..');
@@ -24,8 +27,8 @@ async function fixture(
         (await readFile(path.join(project, 'observer.yaml'), 'utf8')),
     );
     await writeFile(
-      path.join(root, 'observer.publish.yaml'),
-      await readFile(path.join(project, 'observer.publish.yaml'), 'utf8'),
+      path.join(root, 'observer.defaults_dev.yaml'),
+      await readFile(path.join(project, 'observer.defaults_dev.yaml'), 'utf8'),
     );
     await run(root, user);
   } finally {
@@ -80,10 +83,18 @@ await test('publish: dev沿用项目目录，读取期间保持用户目录零�
   fixture(async (root, user) => {
     const layout = await prepareRuntimePaths(root, 'dev');
     assert.deepEqual(layout, {
-      configPath: path.join(root, 'observer.yaml'),
+      configPath: path.join(root, 'observer_dev.yaml'),
       cacheRoot: path.join(root, 'desktop/.cache'),
       logRoot: path.join(root, 'logs'),
     });
+    const config = parseDocument(await readFile(layout.configPath, 'utf8'));
+    assert.equal(config.get('home'), './home');
+    assert.equal(config.get('screenshotDir'), './data/snapshot-v1');
+    const personal =
+      '# 个人配置原文\nhome: ./private\nscreenshotDir: ./private-shots\n';
+    await writeFile(layout.configPath, personal);
+    assert.deepEqual(await prepareRuntimePaths(root, 'dev'), layout);
+    assert.equal(await readFile(layout.configPath, 'utf8'), personal);
     const explicit = await prepareRuntimePaths(
       root,
       'dev',
@@ -97,6 +108,10 @@ await test('publish: dev沿用项目目录，读取期间保持用户目录零�
 
 await test('publish: 首次创建用户配置，保留参数和注释，缓存及日志位于用户数据根', () =>
   fixture(async (root, user) => {
+    await writeFile(
+      path.join(root, 'observer_dev.yaml'),
+      'home: ./private\nscreenshotDir: ./private-shots\n',
+    );
     const layout = await prepareRuntimePaths(
       root,
       'publish',
@@ -111,6 +126,8 @@ await test('publish: 首次创建用户配置，保留参数和注释，缓存�
     const document = parseDocument(generated);
     assert.equal(document.get('home'), '~/.scening');
     assert.equal(document.get('screenshotDir'), '~/.scening/snapshots');
+    assert.equal(document.getIn(['dailyReview', 'scheduledTime']), '03:00');
+    assert.ok(!generated.includes('private-shots'));
     assert.ok(generated.includes('# 发布配置注释保留'));
     const snapshot = await readLocalDay(root, '2026-11-04', layout.configPath);
     assert.deepEqual(snapshot.issues, []);
@@ -165,26 +182,23 @@ await test('publish: 显式配置优先，默认用户配置保持零创建', ()
 
 await test('publish: 编入的模板可独立创建配置，目录阻塞和损坏配置保留原文件', () =>
   fixture(async (root, user) => {
-    const templates = {
-      base: await readFile(path.join(root, 'observer.yaml'), 'utf8'),
-      publish: await readFile(path.join(root, 'observer.publish.yaml'), 'utf8'),
-    };
+    const template = await readFile(path.join(root, 'observer.yaml'), 'utf8');
     const layout = await prepareRuntimePaths(
       path.join(root, 'missing-source'),
       'publish',
       undefined,
-      templates,
+      template,
       user,
     );
     await writeFile(layout.configPath, 'home: [broken');
     await assert.rejects(
-      prepareRuntimePaths(root, 'publish', undefined, templates, user),
+      prepareRuntimePaths(root, 'publish', undefined, template, user),
     );
     assert.equal(await readFile(layout.configPath, 'utf8'), 'home: [broken');
     await rm(path.join(user, '.scening'), { recursive: true });
     await writeFile(path.join(user, '.scening'), 'blocked');
     await assert.rejects(
-      prepareRuntimePaths(root, 'publish', undefined, templates, user),
+      prepareRuntimePaths(root, 'publish', undefined, template, user),
     );
     assert.equal(
       await readFile(path.join(user, '.scening'), 'utf8'),
@@ -194,13 +208,12 @@ await test('publish: 编入的模板可独立创建配置，目录阻塞和损�
 
 await test('publish: 非法发布路径在创建配置前拒绝', () =>
   fixture(async (root, user) => {
-    const base = await readFile(path.join(root, 'observer.yaml'), 'utf8');
     await assert.rejects(
       prepareRuntimePaths(
         root,
         'publish',
         undefined,
-        { base, publish: 'home: ""\nscreenshotDir: ~/images\n' },
+        'home: ""\nscreenshotDir: ~/images\n',
         user,
       ),
     );
@@ -212,3 +225,26 @@ await test('publish: 非法发布路径在创建配置前拒绝', () =>
       prepareRuntimePaths(root, 'publish', explicit, undefined, user),
     );
   }));
+
+await test('构建目录在运行时定位，支持开发预览和固定目录的应用', () => {
+  assert.equal(
+    resolveSourceRoot('/project/desktop/out/main', false, 'darwin'),
+    '/project',
+  );
+  assert.equal(
+    resolveSourceRoot(
+      '/project/desktop/release/mac-arm64/x-scening.app/Contents/Resources/app.asar/out/main',
+      true,
+      'darwin',
+    ),
+    '/project',
+  );
+  assert.equal(
+    resolveSourceRoot(
+      '/project/desktop/release/linux-unpacked/resources/app.asar/out/main',
+      true,
+      'linux',
+    ),
+    '/project',
+  );
+});

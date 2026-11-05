@@ -90,7 +90,7 @@ macOS 采集需要授予屏幕录制权限，键鼠监听需要相应的输入�
 
 ### 2. 配置分析环境
 
-图片分析、任务整理和总结依赖外部 KMH。准备好 KMH 及其 `scening` profile 后，在 [observer.yaml](observer.yaml) 中填写 `kmhLauncher` 和 `kmhProfile`；默认启动器位置为相邻的 `kongming-os` 工程。
+图片分析、任务整理和总结使用基于 DeepSeek Harness 插件打包的内置 Agent 运行时。源码运行前执行 `node desktop/scripts/prepare-kmh.mjs` 准备固定快照，默认启动器和插件组合见 [公开模板](observer.yaml)。开发环境的个人参数保存在 `observer_dev.yaml`。
 
 当前默认分析配置为 MiniMax 中国区 `MiniMax-M3`。凭据填写在本机的 `home/kmh/.env`，配置方法、profile 来源与运行目录见 [KMH 配置说明](src/scening/README.md#kmh-configuration)。本仓库保留 KMH 调用适配，外部 KMH 环境需要单独准备。
 
@@ -118,7 +118,7 @@ desktop/scripts/run.sh run setup:electron
 
 ## 数据与控制
 
-本地打包测试默认使用`dev`模式。GitHub Release或tag环境的构建自动采用`publish`模式，默认数据根为`~/.scening`，配置保存在`~/.scening/observer.yaml`，截图保存在`~/.scening/snapshots`；已有用户配置持续保留。构建命令和覆盖方式见[构建模式说明](desktop/README.md#构建模式与数据目录)。
+本地打包测试默认使用`dev`模式。GitHub Release或tag环境的构建自动采用`publish`模式，默认数据根为`~/.scening`，配置保存在`~/.scening/observer.yaml`，截图保存在`~/.scening/snapshots`；已有用户配置持续保留。发布构建只使用公开模板 [observer.yaml](observer.yaml)。开发客户端首次启动生成个人配置 `observer_dev.yaml`，该文件由 Git 忽略。构建命令和覆盖方式见[构建模式说明](desktop/README.md#构建模式与数据目录)。
 
 原始截图和结构化记录保存在本地，下表列出开发模式默认位置；路径和运行节奏统一由所选配置管理。
 
@@ -158,7 +158,7 @@ desktop/scripts/run.sh run setup:electron
 | [Python 感知模块](src/scening/README.md) | 采集、图片分析、记录、总结与任务整理 |
 | [桌面客户端](desktop/README.md) | 页面、采集控制、设置、检查与打包 |
 | [任务关联时间线](docs/spec/task-linked-timeline-mvp/spec.md) | 同日任务、进展、投入片段与定位回看 |
-| [配置文件](observer.yaml) | 带中文注释的运行参数 |
+| [公开发布模板](observer.yaml) | 带中文注释的公开运行默认值 |
 | [项目规划](docs/project-plan.md) | 产品背景、当前范围与后续方向 |
 
 常用开发检查：

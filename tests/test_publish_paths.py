@@ -11,6 +11,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from scening.observer_config import load_config
+from scening import observer_config
 
 
 class PublishPathTests(unittest.TestCase):
@@ -41,6 +42,25 @@ class PublishPathTests(unittest.TestCase):
     def test_explicit_path_override_expands_user_home(self):
         settings = load_config(self.config).with_overrides(home=Path('~/custom'))
         self.assertEqual(settings.home, self.user_home / 'custom')
+
+    def test_source_defaults_and_private_config_are_separate_from_public(self):
+        dev_template = self.root / 'observer.defaults_dev.yaml'
+        dev_config = self.root / 'observer_dev.yaml'
+        dev_template.write_text('home: ./home\nscreenshotDir: ./data/snapshot-v1\n')
+        with patch.multiple(observer_config, DEFAULT_CONFIG_PATH=self.config,
+                            DEV_TEMPLATE_PATH=dev_template, DEV_CONFIG_PATH=dev_config):
+            source_defaults = load_config()
+            self.assertEqual(source_defaults.home, self.root / 'home')
+            self.assertEqual(source_defaults.screenshotDir, self.root / 'data/snapshot-v1')
+            self.assertFalse(dev_config.exists())
+            values = yaml.safe_load(self.config.read_text())
+            values.update(home='./private-home', screenshotDir='./private-shots')
+            dev_config.write_text(yaml.safe_dump(values))
+            self.assertEqual(load_config().home, self.root / 'private-home')
+            self.assertEqual(load_config(self.config).home, self.user_home / '.scening')
+            dev_config.unlink()
+            dev_template.unlink()
+            self.assertEqual(load_config().screenshotDir, self.user_home / '.scening/snapshots')
 
     def test_publish_log_directory_uses_user_home_in_real_process(self):
         environment = {

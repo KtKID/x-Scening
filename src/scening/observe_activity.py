@@ -23,7 +23,7 @@ from scening.activity_memory import ActivityFrame, ActivityMemory, ObservationRe
 from scening.app_identity import frontmost_application
 from scening.analysis_batch import BatchFrame, compose_batch, frame_metadata
 from scening.kmh_interpreter import KMHInterpreter
-from scening.observer_config import DEFAULT_CONFIG_PATH, load_config
+from scening.observer_config import load_config
 from scening.collector import SensingCollector
 from scening.activity_evidence import EvidenceStore
 from scening.task_store import read_activities,digest
@@ -478,11 +478,11 @@ def main(argv=None):
     """解析手动运行参数，完整链路通过项目.venv中的Python启动。
 
     --count限制尝试轮数，--summary-on-exit标记短试跑的提前总结。
-    默认参数从observer.yaml读取，--config选择完整配置；CLI显式参数临时覆盖。
+    默认读取开发配置，--config选择完整配置；CLI显式参数临时覆盖。
     返回运行退出码，配置错误在采集前记录并返回2，日志失败以stderr兜底。
     """
     parser=argparse.ArgumentParser(description='多屏感知、JPEG候选、KMH理解与每日JSON活动记忆')
-    parser.add_argument('--config',type=Path,default=DEFAULT_CONFIG_PATH,help='完整配置YAML文件（兼容显式JSON）')
+    parser.add_argument('--config',type=Path,help='完整配置YAML文件（兼容显式JSON）')
     parser.add_argument('--home',type=Path,help='临时覆盖活动数据根目录')
     parser.add_argument('--screenshot-dir',type=Path,help='临时覆盖截图根目录，正式图片保存在采集日期子目录')
     parser.add_argument('--interval',type=float,help='临时覆盖候选消费的最小开始间隔，秒')

@@ -1,10 +1,10 @@
-# x-scening 运行配置：全部可调数值由本文件提供默认值。
+# x-scening 运行配置。仓库版本为公开模板，个人参数保存在首次启动生成的配置中。
 # 修改后重新启动生效；显式命令行参数临时覆盖所选配置。
 # home、screenshotDir 与 kmhLauncher 的相对路径按本配置文件所在目录解析。
 # 缓存频率、操作结束等待、操作选图周期与独立观察周期分别配置。
 
-# dev 数据根目录，保存每日记录、总结和内置 Agent 运行数据。publish 首次创建用户配置时采用 observer.publish.yaml 的默认数据根 ~/.scening。已有用户配置继续生效。
-home: ./home
+# 数据根目录，保存每日记录、总结和内置 Agent 运行数据。~ 展开为当前用户主目录。
+home: ~/.scening
 
 # 桌面客户端的状态与本地记录自动更新间隔，单位秒；有限正数。刷新按钮可随时手动重读。
 desktop:
@@ -18,8 +18,8 @@ taskTypes:
   - 娱乐
   - 游戏
 
-# dev 截图保存目录。publish 首次创建用户配置时采用 observer.publish.yaml 的默认截图目录 ~/.scening/snapshots。修改后重启生效。
-screenshotDir: ./data/snapshot-v1
+# 截图保存目录。修改后重启生效。
+screenshotDir: ~/.scening/snapshots
 
 # 消费候选并处理活动的最小开始间隔，秒；正数。采集线程独立按scening.captureFps更新。修改后重启生效。
 sampleIntervalSeconds: 5
@@ -83,7 +83,7 @@ dailyReview:
   # 每日回顾提示词要求的最大中文字数，正整数；完整模型回复按原文保存。
   maxChars: 600
   # 每日自动生成时刻，本地24小时制HH:mm；为前一天生成，设置保存后立即重排。
-  scheduledTime: "00:17"
+  scheduledTime: "03:00"
   # 每日报告自动尝试总数，正整数，包含首次；失败次数跨重启保留。
   maxAutoAttempts: 3
   # 每次自动失败后等待的秒数，有限正数；手动重试单次执行。

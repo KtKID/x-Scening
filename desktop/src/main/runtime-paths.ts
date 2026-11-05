@@ -26,49 +26,39 @@ export async function prepareRuntimePaths(
   root: string,
   mode: RuntimeMode,
   explicitConfig?: string,
-  templates?: { base: string; publish: string },
+  publishTemplate?: string,
   userHome = homedir(),
 ) {
   const basePath = path.join(root, 'observer.yaml');
-  if (mode === 'dev')
+  if (mode === 'dev') {
     return {
       configPath: explicitConfig
         ? resolveConfiguredPath(basePath, explicitConfig, userHome)
-        : basePath,
+        : await prepareDevConfig(basePath),
       cacheRoot: path.join(root, 'desktop/.cache'),
       logRoot: path.join(root, 'logs'),
     };
+  }
 
   let configPath: string;
   if (explicitConfig) {
     configPath = resolveConfiguredPath(basePath, explicitConfig, userHome);
   } else {
-    const [baseContent, publishContent] = templates
-      ? [templates.base, templates.publish]
-      : await Promise.all([
-          readFile(basePath, 'utf8'),
-          readFile(path.join(root, 'observer.publish.yaml'), 'utf8'),
-        ]);
-    const profileRaw: unknown = document(publishContent).toJS();
-    const profile = LocationsSchema.parse(profileRaw);
-    const home = resolveConfiguredPath(basePath, profile.home, userHome);
-    resolveConfiguredPath(basePath, profile.screenshotDir, userHome);
+    const template = document(
+      publishTemplate ?? (await readFile(basePath, 'utf8')),
+    );
+    const raw: unknown = template.toJS();
+    const locations = LocationsSchema.parse(raw);
+    const home = resolveConfiguredPath(basePath, locations.home, userHome);
+    resolveConfiguredPath(basePath, locations.screenshotDir, userHome);
     configPath = path.join(home, 'observer.yaml');
-    const base = document(baseContent);
-    const baseRaw: unknown = base.toJS();
-    const launcher = LauncherSchema.parse(baseRaw);
-    base.set('home', profile.home);
-    base.set('screenshotDir', profile.screenshotDir);
-    base.set(
+    const launcher = LauncherSchema.parse(raw);
+    template.set(
       'kmhLauncher',
       resolveConfiguredPath(basePath, launcher.kmhLauncher, userHome),
     );
     await mkdir(path.dirname(configPath), { recursive: true });
-    try {
-      await writeFile(configPath, base.toString(), { flag: 'wx', mode: 0o600 });
-    } catch (error: unknown) {
-      if (ErrorCodeSchema.safeParse(error).data?.code !== 'EEXIST') throw error;
-    }
+    await createConfig(configPath, template.toString());
   }
   const raw: unknown = document(await readFile(configPath, 'utf8')).toJS();
   const locations = LocationsSchema.parse(raw);
@@ -78,4 +68,56 @@ export async function prepareRuntimePaths(
     cacheRoot: path.join(home, 'desktop/.cache'),
     logRoot: path.join(home, 'logs'),
   };
+}
+
+/** 开发配置首次生成后由用户维护；自定义项目根兼容原有独立配置。 */
+async function prepareDevConfig(basePath: string): Promise<string> {
+  const root = path.dirname(basePath);
+  const configPath = path.join(root, 'observer_dev.yaml');
+  try {
+    await readFile(configPath, 'utf8');
+    return configPath;
+  } catch (error: unknown) {
+    if (ErrorCodeSchema.safeParse(error).data?.code !== 'ENOENT') throw error;
+  }
+  let devTemplate: string;
+  try {
+    devTemplate = await readFile(
+      path.join(root, 'observer.defaults_dev.yaml'),
+      'utf8',
+    );
+  } catch (error: unknown) {
+    if (ErrorCodeSchema.safeParse(error).data?.code !== 'ENOENT') throw error;
+    return basePath;
+  }
+  const raw: unknown = document(devTemplate).toJS();
+  const locations = LocationsSchema.parse(raw);
+  const template = document(await readFile(basePath, 'utf8'));
+  template.set('home', locations.home);
+  template.set('screenshotDir', locations.screenshotDir);
+  await createConfig(configPath, template.toString());
+  return configPath;
+}
+
+async function createConfig(file: string, content: string): Promise<void> {
+  try {
+    await writeFile(file, content, { flag: 'wx', mode: 0o600 });
+  } catch (error: unknown) {
+    if (ErrorCodeSchema.safeParse(error).data?.code !== 'EEXIST') throw error;
+  }
+}
+
+/** 从正在运行的主进程定位源码预览或固定目录下的本地构建。 */
+export function resolveSourceRoot(
+  mainDirectory: string,
+  packaged: boolean,
+  platform: NodeJS.Platform,
+): string {
+  if (!packaged) return path.resolve(mainDirectory, '../../..');
+  return path.resolve(
+    mainDirectory,
+    platform === 'darwin'
+      ? '../../../../../../../../..'
+      : '../../../../../../..',
+  );
 }

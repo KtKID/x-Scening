@@ -1,0 +1,4 @@
+# 开发模板的目录默认值。桌面首次启动时与公开默认值合并，生成本地 observer_dev.yaml。
+# 相对路径基于项目根目录。
+home: ./home
+screenshotDir: ./data/snapshot-v1

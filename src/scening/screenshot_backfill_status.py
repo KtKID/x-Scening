@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from scening.observer_config import DEFAULT_CONFIG_PATH, load_config
+from scening.observer_config import load_config
 from scening.screenshot_index import rebuild_day
 from scening.task_store import day_key
 from scening.screenshot_queue import analysis_lock_path
@@ -110,7 +110,7 @@ def read_backfill_status(config, day):
 def main():
     """只进行本地核对的CLI；边界模型校验后输出单份JSON回复。"""
     parser = argparse.ArgumentParser(description='核对指定日期截图分析状态')
-    parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument('--config', type=Path)
     parser.add_argument('--day', required=True)
     args = parser.parse_args()
     reply = read_backfill_status(load_config(args.config), args.day)

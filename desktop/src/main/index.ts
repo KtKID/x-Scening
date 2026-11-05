@@ -46,7 +46,7 @@ import { createLocalClientRestart } from '../version-check/restart';
 import { scheduleMacRestart } from '../version-check/mac-restart';
 import { localClientPaths } from '../version-check/paths';
 import { RuntimeModeSchema } from '../runtime-mode';
-import { prepareRuntimePaths } from './runtime-paths';
+import { prepareRuntimePaths, resolveSourceRoot } from './runtime-paths';
 import {
   LOCAL_BUILD_CHECK_INTERVAL_MS,
   LocalBuildInfoSchema,
@@ -56,20 +56,22 @@ import {
 const archiveImages = new ArchiveImageExporter();
 app.setName('x-scening');
 const directory = path.dirname(fileURLToPath(import.meta.url));
-declare const __OBSERVER_PROJECT_ROOT__: string;
 declare const __OBSERVER_LOCAL_BUILD__: unknown;
 declare const __OBSERVER_RUNTIME_MODE__: unknown;
-declare const __OBSERVER_BASE_CONFIG__: string;
 declare const __OBSERVER_PUBLISH_CONFIG__: string;
 const runningBuild = LocalBuildInfoSchema.parse(__OBSERVER_LOCAL_BUILD__);
 let localBuildTimer: ReturnType<typeof setInterval> | undefined;
-const projectRoot =
-  process.env.OBSERVER_PROJECT_ROOT ?? __OBSERVER_PROJECT_ROOT__;
+const sourceRoot = resolveSourceRoot(
+  directory,
+  app.isPackaged,
+  process.platform,
+);
+const projectRoot = process.env.OBSERVER_PROJECT_ROOT ?? sourceRoot;
 const runtimePaths = await prepareRuntimePaths(
   projectRoot,
   RuntimeModeSchema.parse(__OBSERVER_RUNTIME_MODE__),
   process.env.OBSERVER_CONFIG,
-  { base: __OBSERVER_BASE_CONFIG__, publish: __OBSERVER_PUBLISH_CONFIG__ },
+  __OBSERVER_PUBLISH_CONFIG__,
 );
 const configPath = runtimePaths.configPath;
 const cacheRoot = runtimePaths.cacheRoot;
@@ -80,14 +82,10 @@ const settings = new SettingsService(projectRoot, configPath);
 const taskTimeline = new TaskTimelineService(
   projectRoot,
   configPath,
-  __OBSERVER_PROJECT_ROOT__,
+  sourceRoot,
 );
 const dailyReview = new DailyReviewService(projectRoot, configPath);
-const backfill = new BackfillService(
-  projectRoot,
-  configPath,
-  __OBSERVER_PROJECT_ROOT__,
-);
+const backfill = new BackfillService(projectRoot, configPath, sourceRoot);
 mkdirSync(cacheRoot, { recursive: true });
 app.setPath('userData', path.join(cacheRoot, 'user-data'));
 app.setPath('sessionData', path.join(cacheRoot, 'session-data'));

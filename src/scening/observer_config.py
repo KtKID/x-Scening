@@ -1,4 +1,4 @@
-"""运行配置的唯一校验入口；默认参数全部从项目 observer.yaml 读取。"""
+"""运行配置的唯一校验入口；公开默认值来自 observer.yaml。"""
 import json
 from pathlib import Path
 from typing import Annotated, Optional
@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 import yaml
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / 'observer.yaml'
+DEV_CONFIG_PATH = DEFAULT_CONFIG_PATH.with_name('observer_dev.yaml')
+DEV_TEMPLATE_PATH = DEFAULT_CONFIG_PATH.with_name('observer.defaults_dev.yaml')
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -258,16 +260,23 @@ class ObserverConfig(BaseModel):
 def load_config(path: Optional[Path] = None, **overrides) -> ObserverConfig:
     """只读加载完整配置，解析相对路径并叠加显式覆盖，返回启动快照。
 
-    参数：path省略时使用项目根observer.yaml；配置需包含全部字段。
+    参数：显式path选择完整配置。省略时优先读取本地observer_dev.yaml，
+    源码首次运行使用公开默认值与开发目录模板，发布资源只含公开模板。
     YAML原生注释由解析器处理，显式旧JSON的_comments校验后排除。
     路径先展开~用户目录，文件内相对路径基于配置所在目录；CLI覆盖基于当前工作目录。
     返回：通过Pydantic校验的ObserverConfig，默认值始终由所选配置文件提供。
     异常：文件缺失、格式/重复键错误、未知字段或非法值抛带文件定位的ValueError。
     副作用：只读配置；创建图片、运行目录或启动子进程均由校验后的消费者完成。
     """
-    source = Path(path if path is not None else DEFAULT_CONFIG_PATH).expanduser().resolve()
+    selected = path
+    if selected is None:
+        selected = DEV_CONFIG_PATH if DEV_CONFIG_PATH.is_file() else DEFAULT_CONFIG_PATH
+    source = Path(selected).expanduser().resolve()
     try:
         values = _read_config_file(source)
+        if path is None and selected == DEFAULT_CONFIG_PATH and DEV_TEMPLATE_PATH.is_file():
+            dev_paths = _read_config_file(DEV_TEMPLATE_PATH)
+            values.update(home=dev_paths.get('home'), screenshotDir=dev_paths.get('screenshotDir'))
         if any(block not in values for block in ('scening', 'analysis', 'control', 'dailyReview', 'taskTypes', 'taskTimeline')):
             defaults = _read_config_file(DEFAULT_CONFIG_PATH)
             for block in ('scening', 'analysis', 'control', 'dailyReview', 'taskTypes', 'taskTimeline'):

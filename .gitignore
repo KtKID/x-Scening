@@ -39,6 +39,9 @@ browser/
 /desktop/release/
 /desktop/release-assets/
 
+# KMH快照的本地展开副本；分发使用同目录runtime.tar.gz与snapshot.json
+/vendor/kmh-scening/runtime/
+
 # 临时验证数据
 /tmp/
 

@@ -1,0 +1,11 @@
+{
+  "profile": "@kmh/profile-scening",
+  "platform": "darwin",
+  "arch": "arm64",
+  "kmhCommit": "e8e0b17e3474c6d649108ff5eff6111c32055687",
+  "dshCommit": "ce7073d51254c26cd63b22a60835b8f948deb447",
+  "sha256": "c029b95c59635c6ba081d253b96cc3e9d93ac73c13dfadbed0e6267f8d4f12b8",
+  "bytes": 71151383,
+  "providers": 41,
+  "packages": 330
+}

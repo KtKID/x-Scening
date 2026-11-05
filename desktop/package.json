@@ -1,6 +1,6 @@
 {
   "name": "x-scening-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -14,7 +14,7 @@
     "format:check": "prettier . --check",
     "format": "prettier . --write",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run contracts:check",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs",
     "test:e2e": "tsx tests/electron.e2e.ts",
     "contracts": "node scripts/generate-contracts.mjs",
     "contracts:check": "node scripts/generate-contracts.mjs --check",
@@ -22,7 +22,8 @@
     "build:publish": "node --import tsx src/version-check/build.ts --mode publish",
     "release:check-tag": "node --import tsx src/release-artifacts.ts check-tag",
     "release:verify": "node --import tsx src/release-artifacts.ts verify",
-    "release:archive": "node --import tsx src/release-artifacts.ts archive"
+    "release:archive": "node --import tsx src/release-artifacts.ts archive",
+    "models:sync": "node scripts/prepare-kmh.mjs --sync"
   },
   "build": {
     "appId": "local.x-scening.desktop",

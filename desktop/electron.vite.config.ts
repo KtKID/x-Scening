@@ -33,6 +33,11 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
-    define: { __OBSERVER_VERSION__: JSON.stringify(version) },
+    define: {
+      __OBSERVER_VERSION__: JSON.stringify(version),
+      __OBSERVER_SIDEBAR_VERSION__: JSON.stringify(
+        `v${version}${mode === 'dev' ? ' dev' : ''}`,
+      ),
+    },
   },
 });

@@ -143,6 +143,7 @@ const browserBridge: ObserverBridge = {
 };
 const bridge = window.observer ?? browserBridge;
 declare const __OBSERVER_VERSION__: string;
+declare const __OBSERVER_SIDEBAR_VERSION__: string;
 
 type Page = 'timeline' | 'summaries' | 'settings' | 'backfill';
 type SummaryTab = 'periodic' | 'daily';
@@ -667,7 +668,7 @@ export function App() {
           </button>
         </nav>
         <div className="sidebar-bottom">
-          <p className="sidebar-version">v{__OBSERVER_VERSION__}</p>
+          <p className="sidebar-version">{__OBSERVER_SIDEBAR_VERSION__}</p>
           <button
             className={`nav-item ${page === 'settings' ? 'active' : ''}`}
             onClick={() => goPage('settings')}

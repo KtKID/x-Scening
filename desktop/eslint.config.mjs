@@ -13,6 +13,7 @@ export default defineConfig(
       '.cache/**',
       'out/**',
       'release/**',
+      'release-assets/**',
       'node_modules/**',
       'dist/**',
       'build/**',

@@ -96,6 +96,7 @@ class Candidate:
     reason: str
     generation: int = 0
     sample_sequence: Optional[int] = None
+    screenshot_dir: Optional[Path] = None
 
     @property
     def prepared(self):
@@ -113,12 +114,19 @@ class FrameStore:
         参数 screenshot_dir 来自配置，quality 为 JPEG 质量；目录创建失败时原样上抛。
         实时事件由stage暂存内存；兼容save入口独占临时目录，正式图按采集日期归档。
         """
-        directory = Path(screenshot_dir).resolve()
-        self.screenshot_dir = directory
-        directory.mkdir(parents=True, exist_ok=True)
-        self._temporary = tempfile.TemporaryDirectory(prefix='.events-', dir=directory)
+        self.set_screenshot_directory(screenshot_dir)
+        self._temporary = tempfile.TemporaryDirectory(prefix='.events-', dir=self.screenshot_dir)
         self.event_home = Path(self._temporary.name)
         self.quality = quality
+
+    def set_screenshot_directory(self, screenshot_dir):
+        """准备正式 JPEG 目录后采用新路径；目录创建失败时保留原有存储状态。
+
+        screenshot_dir 为已解析的配置路径。已发布文件和本次运行的事件暂存保持原位置。
+        """
+        directory = Path(screenshot_dir).resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        self.screenshot_dir = directory
 
     def stage(self, frame: Frame) -> BufferedFrame:
         """将借用帧编码为独立的内存JPEG，供事件比较及隐私检查。

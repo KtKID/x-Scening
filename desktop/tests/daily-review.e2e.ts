@@ -74,7 +74,7 @@ const application = await electron.launch({
   executablePath: packaged
     ? path.join(
         desktop,
-        'release/mac-arm64/x-scening.app/Contents/MacOS/Observer',
+        'release/mac-arm64/x-scening.app/Contents/MacOS/x-scening',
       )
     : path.join(
         desktop,

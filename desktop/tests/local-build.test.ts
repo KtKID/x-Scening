@@ -48,7 +48,7 @@ async function packaged(output: string, build: LocalBuildInfo) {
   const app = path.join(output, relativeApp);
   await mkdir(path.join(app, resources), { recursive: true });
   await mkdir(path.join(app, 'Contents/MacOS'), { recursive: true });
-  await writeFile(path.join(app, 'Contents/MacOS/Observer'), 'executable');
+  await writeFile(path.join(app, 'Contents/MacOS/x-scening'), 'executable');
   await writeFile(
     path.join(app, resources, 'app.asar'),
     [build.buildId, 'preload', '<html></html>'].join('\n'),
@@ -182,6 +182,27 @@ await test('U3 标记必须匹配固定应用包，缺失或损坏可恢复', as
     await packaged(path.join(root, 'desktop/release'), next);
     await writeFile(marker, JSON.stringify(next));
     assert.equal((await readLocalBuild(root, next)).status, 'current');
+  });
+});
+
+await test('发布签名失败时保留上一份应用和成功标记', async () => {
+  await fixture(async (root, marker) => {
+    await assert.rejects(
+      publishLocalBuild(
+        root,
+        next,
+        () => outputs(root, next.buildId),
+        (output) => packaged(output, next),
+        async (app) => {
+          const staged = path.join(app, resources, 'local-client-build.json');
+          assert.deepEqual(JSON.parse(await readFile(staged, 'utf8')), next);
+          throw new Error('签名失败');
+        },
+      ),
+      /签名失败/,
+    );
+    assert.deepEqual(JSON.parse(await readFile(marker, 'utf8')), previous);
+    assert.equal((await readLocalBuild(root, previous)).status, 'current');
   });
 });
 await test('U4 连续构建复用唯一固定发布路径', async () => {

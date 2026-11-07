@@ -124,7 +124,7 @@ try {
       const resources = `${fixtureRoot}/desktop/release/mac-arm64/x-scening.app/Contents/Resources`;
       const archive = fs.statSync(`${resources}/app.asar`);
       const executable = fs.statSync(
-        `${fixtureRoot}/desktop/release/mac-arm64/x-scening.app/Contents/MacOS/Observer`,
+        `${fixtureRoot}/desktop/release/mac-arm64/x-scening.app/Contents/MacOS/x-scening`,
       );
       return {
         platform: process.platform,

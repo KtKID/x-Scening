@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { z } from 'zod';
 import { LocalBuildInfoSchema } from './version-check/protocol';
-import { localClientPaths } from './version-check/paths';
+import { CLIENT_NAME, localClientPaths } from './version-check/paths';
 import { verifyBundledRuntimes } from './bundled-runtime-check';
 
 const execute = promisify(execFile);
@@ -91,6 +91,16 @@ export async function verifyMacRelease(app: string, tag: string) {
   const plist = path.join(app, 'Contents/Info.plist');
   if ((await plistValue(plist, 'CFBundleShortVersionString')) !== version)
     throw new Error('应用Info.plist版本须与Release版本一致');
+  const names = await Promise.all(
+    ['CFBundleExecutable', 'CFBundleName', 'CFBundleDisplayName'].map((key) =>
+      plistValue(plist, key),
+    ),
+  );
+  if (
+    path.basename(app) !== `${CLIENT_NAME}.app` ||
+    names.some((name) => name !== CLIENT_NAME)
+  )
+    throw new Error('应用、显示名和主程序须统一为 x-scening');
   const iconName = IconNameSchema.parse(
     await plistValue(plist, 'CFBundleIconFile'),
   );
@@ -102,7 +112,7 @@ export async function verifyMacRelease(app: string, tag: string) {
   );
   if (icon.length <= 8 || icon.subarray(0, 4).toString() !== 'icns')
     throw new Error('Release包要求有效的产品icns图标');
-  const executable = path.join(app, 'Contents/MacOS/Observer');
+  const executable = path.join(app, 'Contents/MacOS', CLIENT_NAME);
   if (!(await stat(executable)).isFile())
     throw new Error('Release可执行文件须完整就绪');
   const architectures = (
@@ -112,6 +122,7 @@ export async function verifyMacRelease(app: string, tag: string) {
     .split(/\s+/);
   if (!architectures.includes('arm64'))
     throw new Error('Release可执行文件要求arm64架构');
+  await execute('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   await verifyBundledRuntimes(resources);
   return ReleaseInfoSchema.parse({
     tag,

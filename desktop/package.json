@@ -1,6 +1,6 @@
 {
   "name": "x-scening-desktop",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,7 @@
     ],
     "appId": "local.x-scening.desktop",
     "productName": "x-scening",
-    "executableName": "Observer",
+    "executableName": "x-scening",
     "directories": {
       "output": "release"
     },

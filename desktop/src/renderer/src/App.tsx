@@ -103,6 +103,8 @@ const browserBridge: ObserverBridge = {
   controlBackfill: () => Promise.reject(new Error('请在桌面客户端补分析。')),
   screenshotDirectory: () =>
     Promise.reject(new Error('请在桌面客户端查看截图保存目录。')),
+  chooseScreenshotDirectory: () =>
+    Promise.reject(new Error('请在桌面客户端选择截图保存目录。')),
   readBackgrounds: () =>
     Promise.reject(new Error('请在桌面客户端查看后台状态。')),
   readTaskTimeline: (query) =>
@@ -804,14 +806,27 @@ export function App() {
           </div>
         </header>
         <LocalBuildNotice bridge={bridge} />
-        <div
-          className={`capture-progress ${capture.state}`}
-          title={capture.message}
-        >
-          {'mode' in capture &&
-            (capture.mode === 'capture-only' ? '仅截屏 · ' : '截图与分析 · ')}
-          {capture.message}
-        </div>
+        {capture.state === 'running' &&
+        capture.mode === 'full' &&
+        capture.analysisIssue ? (
+          <div className="capture-progress analysis-issue" role="status">
+            {capture.analysisIssue.state === 'paused'
+              ? '截图中 · 分析已暂停 · '
+              : '截图中 · 分析重试中 · '}
+            {capture.analysisIssue.reason}
+            {capture.analysisIssue.state === 'paused' &&
+              '。问题解决后，关闭再开启分析以补跑。'}
+          </div>
+        ) : (
+          <div
+            className={`capture-progress ${capture.state}`}
+            title={capture.message}
+          >
+            {'mode' in capture &&
+              (capture.mode === 'capture-only' ? '仅截屏 · ' : '截图与分析 · ')}
+            {capture.message}
+          </div>
+        )}
         {page === 'timeline' && (
           <div className="filters" aria-label="应用筛选">
             <button
@@ -1051,7 +1066,7 @@ export function App() {
                 </>
               )}
             </div>
-            <p className="version">Observer · {__OBSERVER_VERSION__}</p>
+            <p className="version">x-scening · {__OBSERVER_VERSION__}</p>
           </section>
         </div>
       </main>

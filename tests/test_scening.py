@@ -17,6 +17,7 @@ from scening.capture import Display, Frame, InputEvent, display_at
 from scening.collector import SensingCollector
 from scening.frame_store import Candidate, FrameStore
 from scening.observer_config import load_config
+from scening.screen_stream import StreamFrame
 from scening.selection import Action, image_difference, segment_actions
 
 
@@ -92,6 +93,48 @@ class SceningTests(unittest.TestCase):
                                   wall_clock=self.clock.wall, app_provider=lambda display=None: ('Editor', 'test.editor'))
         self.addCleanup(result.close)
         return result
+
+    def test_stream_frame_time_identity_idle_and_pause(self):
+        """异步帧保留系统时间，跨应用的帧归未知，静止观测只复用上一帧。"""
+        self.backend.screens = self.backend.screens[:1]
+        self.backend.pause_capture = lambda: pauses.append(True)
+        self.backend.prepare_capture = lambda displays, fps: preparations.append((tuple(displays), fps))
+        pauses, preparations = [], []
+        collector = self.collector()
+        old_image = Image.new('RGB', (200, 100), 'red')
+        new_image = Image.new('RGB', (200, 100), 'blue')
+        received = iter([
+            StreamFrame(AT.timestamp(), old_image),
+            StreamFrame(AT.timestamp() + 0.5, new_image),
+            StreamFrame(AT.timestamp() + 1.5, None),
+            None,
+        ])
+        self.backend.grab = lambda display: next(received)
+        collector.tick()
+        self.assertEqual(collector._frames[1].app, 'Editor')
+
+        collector.app_provider = lambda display: ('Browser', 'test.browser')
+        self.clock.value = 1
+        collector.tick()
+        self.assertEqual(collector._frames[1].at, AT + timedelta(seconds=0.5))
+        self.assertIsNone(collector._frames[1].app)
+        with self.assertRaises(ValueError):
+            old_image.getpixel((0, 0))
+
+        self.clock.value = 2
+        collector.tick()
+        self.assertIs(collector._frames[1].image, new_image)
+        self.assertIsNone(collector._frames[1].app)
+        self.assertEqual(collector._frames[1].at, AT + timedelta(seconds=1.5))
+
+        self.backend.asleep = True
+        collector.tick()
+        self.assertEqual(pauses, [True])
+        self.assertEqual(collector._frames, {})
+        self.backend.asleep = False
+        collector.tick()
+        self.assertEqual(collector._frames, {})
+        self.assertEqual(len(preparations), 4)
 
     def tick(self, collector, at):
         self.clock.value = at

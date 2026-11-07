@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+export const CLIENT_NAME = 'x-scening';
+
 /** 当前平台的固定发布入口；内部暂存与上一份产物统一收在.cache。 */
 export function localClientPaths(
   root: string,
@@ -17,7 +19,7 @@ export function localClientPaths(
       : process.arch === 'x64'
         ? 'linux-unpacked'
         : `linux-${process.arch}-unpacked`;
-  const app = path.join(output, folder, mac ? 'x-scening.app' : '');
+  const app = path.join(output, folder, mac ? `${CLIENT_NAME}.app` : '');
   const resources = path.join(app, mac ? 'Contents/Resources' : 'resources');
   return {
     app,
@@ -25,10 +27,10 @@ export function localClientPaths(
     executable: path.join(
       app,
       mac
-        ? 'Contents/MacOS/Observer'
+        ? `Contents/MacOS/${CLIENT_NAME}`
         : process.platform === 'win32'
-          ? 'Observer.exe'
-          : 'Observer',
+          ? `${CLIENT_NAME}.exe`
+          : CLIENT_NAME,
     ),
     archive: path.join(resources, 'app.asar'),
     info: path.join(resources, 'local-client-build.json'),

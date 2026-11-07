@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { SelectHTMLAttributes } from 'react';
 import { Check, ChevronDown, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react';
 import type { ObserverBridge } from '../../shared/protocol';
-import type { ModelSettings, SaveProvider } from '../../shared/models';
+import type {
+  ModelSelection,
+  ModelSettings,
+  SaveProvider,
+} from '../../shared/models';
 
 type State =
   | { status: 'loading' }
@@ -36,11 +40,76 @@ function ModelSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
   );
 }
 
+function AnalysisDropdown({
+  label,
+  placeholder,
+  value,
+  options,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  placeholder: string;
+  value: string | undefined;
+  options: { id: string; name: string; unavailable?: string }[];
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const id = useId();
+  const anchor = `--analysis-dropdown-${id.replace(/[^\w-]/g, '')}`;
+  const selected = options.find((option) => option.id === value);
+  return (
+    <div className="model-analysis-field">
+      <span id={`${id}-label`}>{label}</span>
+      <button
+        type="button"
+        className="model-dropdown-trigger"
+        style={{ anchorName: anchor }}
+        aria-labelledby={`${id}-label ${id}-value`}
+        popoverTarget={id}
+        disabled={disabled || options.length === 0}
+      >
+        <span id={`${id}-value`}>{selected?.name ?? placeholder}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      <div
+        id={id}
+        popover="auto"
+        className="model-dropdown-menu"
+        style={{ positionAnchor: anchor }}
+        role="group"
+        aria-label={label}
+      >
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={option.id === value}
+            disabled={disabled || Boolean(option.unavailable)}
+            popoverTarget={id}
+            popoverTargetAction="hide"
+            onClick={() => onSelect(option.id)}
+          >
+            <span>
+              {option.name}
+              {option.unavailable && ` · ${option.unavailable}`}
+            </span>
+            {option.id === value && <Check size={14} aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 已保存供应商、当前模型及供应商编辑器；目录和能力由KMH提供。 */
 export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
   const [state, setState] = useState<State>({ status: 'loading' });
   const [feedback, setFeedback] = useState<Feedback>({ status: 'idle' });
   const [draft, setDraft] = useState<SaveProvider | null>(null);
+  const [analysisDraft, setAnalysisDraft] = useState<ModelSelection | null>(
+    null,
+  );
   const [editing, setEditing] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [reload, setReload] = useState(0);
@@ -52,6 +121,7 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
         if (active) {
           setState({ status: 'ready', value });
           setDraft(fresh(value));
+          setAnalysisDraft(null);
         }
       },
       (error: unknown) => {
@@ -78,6 +148,7 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
     try {
       const value = await operation();
       setState({ status: 'ready', value });
+      setAnalysisDraft(null);
       if (reset) {
         setDraft(fresh(value));
         setEditing(null);
@@ -125,6 +196,22 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
   const currentModel = currentProvider?.models.find(
     (entry) => entry.id === value.selected?.model,
   );
+  const analysis = analysisDraft ?? value.selected;
+  const analysisProvider = value.saved.find(
+    (entry) => entry.provider === analysis?.provider,
+  );
+  const analysisModel = analysisProvider?.models.find(
+    (entry) => entry.id === analysis?.model,
+  );
+  const canApply =
+    !busy &&
+    analysisDraft &&
+    analysisModel?.image &&
+    analysisProvider?.credential !== 'missing';
+  const updateAnalysis = (selection: ModelSelection): void => {
+    setAnalysisDraft(selection);
+    setFeedback({ status: 'idle' });
+  };
   const edit = (name: string): void => {
     const saved = value.saved.find((entry) => entry.provider === name);
     if (!saved) return;
@@ -149,7 +236,102 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
         <h3>模型</h3>
         <span className="muted">用于截图分析与总结</span>
       </div>
-      <div className="model-provider-list">
+      <form
+        className="model-analysis"
+        aria-label="分析配置"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canApply)
+            perform(
+              () => bridge.selectModel(analysisDraft),
+              '分析配置已更新，下次调用生效。',
+            ).catch(console.error);
+        }}
+      >
+        <p className="model-analysis-current">
+          当前使用{' '}
+          {currentProvider && currentModel
+            ? `${currentProvider.provider} / ${currentModel.name}`
+            : '待配置'}
+        </p>
+        <div className="model-current">
+          <AnalysisDropdown
+            label="分析供应商"
+            placeholder="选择已登记的供应商"
+            value={analysisProvider?.provider}
+            options={value.saved.map((entry) => ({
+              id: entry.provider,
+              name: entry.provider,
+              ...(entry.credential === 'missing'
+                ? { unavailable: '待填写密钥' }
+                : entry.models.some((item) => item.image)
+                  ? {}
+                  : { unavailable: '无图片模型' }),
+            }))}
+            disabled={busy}
+            onSelect={(name) => {
+              if (name === analysisProvider?.provider) return;
+              const models =
+                value.saved
+                  .find((entry) => entry.provider === name)
+                  ?.models.filter((item) => item.image) ?? [];
+              updateAnalysis({
+                provider: name,
+                model: models.length === 1 ? (models[0]?.id ?? '') : '',
+              });
+            }}
+          />
+          <AnalysisDropdown
+            label="分析模型"
+            placeholder="选择图片模型"
+            value={analysisModel?.id}
+            options={(analysisProvider?.models ?? []).map((item) => ({
+              id: item.id,
+              name: item.name,
+              ...(!item.image && { unavailable: '仅文字' }),
+            }))}
+            disabled={busy || analysisProvider?.credential === 'missing'}
+            onSelect={(id) => {
+              if (analysisProvider && id !== analysisModel?.id)
+                updateAnalysis({
+                  provider: analysisProvider.provider,
+                  model: id,
+                });
+            }}
+          />
+          <AnalysisDropdown
+            label="思考等级"
+            placeholder="供应商默认"
+            value={analysis?.reasoningEffort ?? ''}
+            options={[
+              { id: '', name: '供应商默认' },
+              ...(analysisModel?.efforts ?? []).map((effort) => ({
+                id: effort,
+                name: effort,
+              })),
+            ]}
+            disabled={busy || !analysisModel?.efforts.length}
+            onSelect={(effort) => {
+              if (analysis && effort !== (analysis.reasoningEffort ?? ''))
+                updateAnalysis({ ...analysis, reasoningEffort: effort });
+            }}
+          />
+        </div>
+        <div className="model-form-actions">
+          <button type="submit" className="model-save" disabled={!canApply}>
+            应用到分析
+          </button>
+        </div>
+      </form>
+      {(feedback.status === 'saved' || feedback.status === 'error') && (
+        <p
+          role={feedback.status === 'saved' ? 'status' : 'alert'}
+          className="model-feedback"
+        >
+          {feedback.message}
+        </p>
+      )}
+      <div className="model-provider-list" aria-label="已登记供应商">
         {value.saved.map((entry) => (
           <div className="model-provider-card" key={entry.provider}>
             <div className="model-provider-name">
@@ -199,92 +381,13 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
           </p>
         )}
       </div>
-      {value.saved.length > 0 && (
-        <div className="model-current">
-          <label>
-            当前模型
-            <ModelSelect
-              aria-label="当前模型"
-              disabled={busy}
-              value={
-                currentModel && currentProvider
-                  ? JSON.stringify([currentProvider.provider, currentModel.id])
-                  : ''
-              }
-              onChange={(event) => {
-                const found = value.saved
-                  .flatMap((entry) =>
-                    entry.models.map((item) => ({
-                      provider: entry.provider,
-                      model: item.id,
-                      key: JSON.stringify([entry.provider, item.id]),
-                    })),
-                  )
-                  .find((item) => item.key === event.target.value);
-                if (found)
-                  perform(
-                    () =>
-                      bridge.selectModel({
-                        provider: found.provider,
-                        model: found.model,
-                      }),
-                    '当前模型已更新，下次调用生效。',
-                  ).catch(console.error);
-              }}
-            >
-              <option value="" disabled>
-                选择模型
-              </option>
-              {value.saved.map((entry) => (
-                <optgroup label={entry.provider} key={entry.provider}>
-                  {entry.models.map((item) => (
-                    <option
-                      key={item.id}
-                      value={JSON.stringify([entry.provider, item.id])}
-                      disabled={!item.image || entry.credential === 'missing'}
-                    >
-                      {item.name}
-                      {item.image ? '' : ' · 仅文字'}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </ModelSelect>
-          </label>
-          <label>
-            思考等级
-            <ModelSelect
-              aria-label="当前模型思考等级"
-              disabled={busy || !currentModel?.efforts.length}
-              value={value.selected?.reasoningEffort ?? ''}
-              onChange={(event) => {
-                if (value.selected) {
-                  const selected = {
-                    ...value.selected,
-                    reasoningEffort: event.target.value,
-                  };
-                  perform(
-                    () => bridge.selectModel(selected),
-                    '思考等级已更新。',
-                  ).catch(console.error);
-                }
-              }}
-            >
-              <option value="">供应商默认</option>
-              {currentModel?.efforts.map((effort) => (
-                <option key={effort}>{effort}</option>
-              ))}
-            </ModelSelect>
-          </label>
-        </div>
-      )}
       <form
         className="model-provider-form"
         onSubmit={(event) => {
           event.preventDefault();
           perform(
             () => bridge.saveModelProvider(draft),
-            '供应商已保存，后续分析与总结使用所选模型。',
+            '供应商已保存。',
             true,
           ).catch(console.error);
         }}
@@ -481,11 +584,6 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
             </label>
           </details>
         )}
-        {feedback.status === 'error' && (
-          <p role="alert" className="model-feedback">
-            {feedback.message}
-          </p>
-        )}
         <div className="model-form-actions">
           <button
             type="button"
@@ -509,11 +607,6 @@ export function ModelSettingsEditor({ bridge }: { bridge: ObserverBridge }) {
           </button>
         </div>
       </form>
-      {feedback.status === 'saved' && (
-        <p role="status" className="model-feedback">
-          {feedback.message}
-        </p>
-      )}
       <small className="muted model-source">
         供应商与模型目录来自 KMH · {value.catalog.length} 个提供商
       </small>

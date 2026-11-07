@@ -46,7 +46,7 @@ try {
   for (const name of Object.keys(env))
     if (name.startsWith('SCENING_KEY_')) delete env[name];
   const app = await electron.launch({
-    executablePath: path.join(installed, 'Contents/MacOS/Observer'),
+    executablePath: path.join(installed, 'Contents/MacOS/x-scening'),
     args: [],
     env: {
       ...env,

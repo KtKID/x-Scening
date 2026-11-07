@@ -7,7 +7,7 @@
 本模块在 macOS 后台选取屏幕画面，保存原图与带采集时间的活动，并按周期生成总结；桌面客户端可查看记录、每日回顾和同日任务进展。应用代码统一位于本目录，按用户指定保留 `scening` 拼写。
 
 ```text
-MSS 多屏最新帧缓存 ── 键鼠事件首尾（内存JPEG）── 差异分段 / 末条结束图
+ScreenCaptureKit 多屏最新帧缓存 ── 键鼠事件首尾（内存JPEG）── 差异分段 / 末条结束图
           └──────── 独立定时观察与选屏 ────────────┘
                               ↓
                     挑选一张待保存原图
@@ -80,22 +80,22 @@ MSS 多屏最新帧缓存 ── 键鼠事件首尾（内存JPEG）── 差异
 
 **5 秒是候选处理节奏。** 图像采集线程独立运行，模型分析还取决于凑批、变化和处理耗时。当前配置分别管理上述环节；“一次截图流程完成 → 等 5 秒 → 允许下一次截屏”的全局冷却规则处于待实现范围，作用对象见“待确认”。
 
-所有数值默认值以 YAML 为准。高分辨率条件为任一屏 MSS 逻辑宽度严格大于 2560，或高度严格大于 1600；JPEG 原图品质 70、系统空闲 300 秒暂停、候选队列上限 6。实际吞吐取决于机器、显示器及本轮保存和索引耗时。
+所有数值默认值以 YAML 为准。高分辨率条件为任一屏逻辑宽度严格大于 2560，或高度严格大于 1600；JPEG 原图品质 70、系统空闲 300 秒暂停、候选队列上限 6。实际吞吐取决于机器、显示器及本轮保存和索引耗时。
 
 旧配置省略整个 `scening`、`analysis`、`control`、`dailyReview`、`taskTypes` 或 `taskTimeline` 块时，从项目 YAML 补齐对应完整块；旧 `dailyReview` 仅含 `maxChars` 时也从项目YAML补齐新字段；其他部分块、未知字段、重复键及非法类型/数值在校验阶段报错。路径字段由所选配置文件所在目录解析；显式 CLI 相对路径按调用工作目录解析。
 
 #### 数据目录与文件路径
 
-下表按默认配置给出项目相对路径。修改 `home` 会改变后续记录、拼图与 KMH 新数据的保存位置；修改 `screenshotDir` 决定后续正式截图的保存位置，实时事件图暂存进程内存。历史文件保留既有位置；新引用在写入前核对当前允许根，历史引用继续兼容读取。
+下表按默认配置给出项目相对路径。修改 `home` 会改变后续记录、拼图与 KMH 新数据的保存位置；修改 `screenshotDir` 后，下一次正式截图提交采用新目录，原始 JPEG、采集旁文件与日期索引使用同一目录。正在分析的批次沿用自己的截图根提交，旧目录未满批保留原图。历史文件保留既有位置，新引用在写入前核对当前允许根，历史引用继续可读。
 
 | 数据或用途 | 默认路径 | 日期、保存与保留规则 |
 | --- | --- | --- |
-| 运行配置 | dev 为 `observer_dev.yaml`，publish 为 `~/.scening/observer.yaml` | 采集使用启动时读取的配置快照。 |
+| 运行配置 | dev 为 `observer_dev.yaml`，publish 为 `~/.scening/observer.yaml` | 采集策略使用启动快照，正式截图目录于下一次图片提交读取。 |
 | 新正式截图 | `data/snapshot-v1/YYYY-MM-DD/YYYY-MM-DD_HH-MM-SS_mN_action.jpg`、`…_periodic.jpg` | 按采集日期建目录，保留原始像素；同秒重名追加序号；正式图持续保留。 |
 | 早期平铺截图 | `data/snapshot-v1/*.jpg` | 历史文件保留原名和原位置，按日索引同时扫描。 |
 | 实时事件缓存 | 进程内存中的压缩JPEG | before/after与定时候选先完成内存选图和隐私检查，通过后保存正式图；动作缓存沿`maxStoredActions`限制并释放引用。 |
 | 兼容工具临时图片 | `data/snapshot-v1/.events-*/` | 显式文件工具入口独占目录；旧版本残留保持原位，实时路径使用内存快照。 |
-| 按日分析索引 | `data/snapshot-v1/YYYY-MM-DD/index.json` | 由当日报告 frames 与正式原图重建；同目录 `.index.lock` 协调并发，完整临时文件后替换。 |
+| 按日分析索引 | `screenshotDir/YYYY-MM-DD/index.json` | 由当日报告 frames 与正式原图重建；同目录 `.index.lock` 协调并发，完整临时文件后替换。 |
 | 分析拼图 | `home/analysis/YYYY-MM-DD/YYYY-MM-DD_HH-MM-SS_batch.jpg` | 默认三帧拼图，新活动 screenshot/mini 同指此图；已提交拼图保留。 |
 | 旧版原图与缩图 | `home/screenshot/` | 历史路径，旧入口已退役；2026-10-30 16:18 复查时该目录已不存在。 |
 | 原始活动报告 | `home/records/YYYY-MM-DD.json` | 每日 JSON 列表，新分析追加；同日无变化只改末条 end；frames 保存原图引用。 |
@@ -255,7 +255,7 @@ PYTHONPATH=src .venv/bin/python -B -m scening.task_timeline organize --day 2026-
 
 桌面客户端可启动现有完整活动入口并即时接收采集状态；分析开关在同一Python进程生效，关闭会取消模型任务并回收进程组，短JSON提交按原子边界完成。配置中的desktop.refreshIntervalSeconds控制客户端自动重读记录，默认2秒；详见 [分析控制修复](../../reports/fix/fix-report-20261028-analysis-control.md)。
 
-MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGraphics权限、AppKit和POSIX进程/文件机制，完整采集链的Windows适配需继续处理这些系统边界。当前macOS抓图采用MSS。
+当前采集依赖 macOS 12.3 或更新版本的 ScreenCaptureKit、Quartz 与系统录屏授权。开发版使用 Xcode 命令行工具编译原生桥接，发行包携带预编译桥接库。完整采集链的 Windows 适配需单独提供原生后端。
 
 采集代码、旧逻辑兼容与本地双屏验证沿用既有记录。MiniMax凭据与旧配置变更见[切换task](../../docs/spec/screen-observer-p0/tasks/task-minimax-m3.md)，scening真实拼图分析与结构化记录专项见[接入task](../../docs/spec/screen-observer-p0/tasks/task-scening-profile.md)。历史ZCode认证报告保留为原版本证据。
 
@@ -297,10 +297,29 @@ MSS本身覆盖Windows、macOS和Linux；当前scening还使用Quartz、CoreGrap
 | 关键函数或声明 | 输入、结果与关键边界 |
 | --- | --- |
 | [`display_at`](capture.py#L51) | 接收显示器列表与坐标，返回所属屏或 None；屏幕右、下边界归相邻屏。 |
-| [`NativeBackend.displays`](capture.py#L64) | 重新创建 MSS 实例并返回显示器布局；与 grab/close 在采集线程内执行。 |
-| [`NativeBackend.grab`](capture.py#L73) | 接收目标屏，核对屏幕录制权限后返回原尺寸 RGB 图片；权限和抓屏错误交上层处理。 |
-| [`NativeBackend.start_inputs`](capture.py#L98) | 接收事件提交回调和时钟，申请输入权限后启动点击、键盘、滚轮监听；返回监听是否成功。 |
-| [`NativeBackend.close`](capture.py#L131) | 按预算先停止并等待监听器，再关闭 MSS；等待超时报错。 |
+| [`NativeBackend.displays`](capture.py) | 读取 Quartz 显示布局、稳定显示器 ID 与名义像素尺寸。 |
+| [`NativeBackend.prepare_capture`](capture.py) | 按布局复用每块屏幕的 `SCStream`，在授权变化、暂停和布局变化后重建会话。 |
+| [`NativeBackend.grab`](capture.py) | 取该屏的最新观察和系统时间，复制 RGB 像素后归还系统缓冲。 |
+| [`NativeBackend.start_inputs`](capture.py) | 接收事件提交回调和时钟，申请输入权限后启动点击、键盘、滚轮监听；返回监听是否成功。 |
+| [`NativeBackend.close`](capture.py) | 发起停流并停止监听，统一等待资源回收，超时报错。 |
+
+```mermaid
+sequenceDiagram
+    participant C as Python 采集线程
+    participant S as 每屏 SCStream
+    participant F as 最新帧槽
+    participant P as 选图与隐私检查
+    C->>S: 读取布局和录屏授权，按屏启动
+    loop 采集期间
+        S->>F: 以新帧替换上一张待取帧
+        C->>F: 取最新观察，复制像素并释放原生缓冲
+        opt 事件或定时选图命中
+            C->>P: 内存 JPEG，先检查再保存正式图
+        end
+    end
+    C->>S: 空闲、休眠、布局变化或退出时停流
+    C->>F: 清空缓存，旧流收尾后才复采
+```
 
 ### [collector.py](collector.py)
 

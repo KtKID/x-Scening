@@ -13,7 +13,7 @@ import {
   DesktopConfigSchema,
   ControlConfigSchema,
 } from '../shared/scening.generated';
-import { runtimeControl } from './runtime-control';
+import { readCaptureStatus, runtimeControl } from './runtime-control';
 import { resolveConfiguredPath } from './config-paths';
 import type {
   CaptureMode,
@@ -51,6 +51,7 @@ type Managed = {
   mode: CaptureMode;
   home: string;
   control: z.infer<typeof ControlConfigSchema>;
+  statusRevision: number;
 };
 
 /** 主进程独占控制能力；Python继续持有home锁和全部正式文件的写入职责。 */
@@ -72,10 +73,12 @@ export class CaptureController {
   private listeners = new Set<(runtime: RuntimeSnapshot) => void>();
   private interval = 0;
   private revision = 0;
+  private analysisControlRevision = 0;
   constructor(
     private readonly root: string,
     configPath?: string,
     private readonly cacheRoot?: string,
+    private readonly requireAnalysisModel?: (home: string) => Promise<void>,
   ) {
     this.configPath = path.resolve(
       configPath ?? path.join(root, 'observer.yaml'),
@@ -199,6 +202,7 @@ export class CaptureController {
     return null;
   }
   private async snapshot(): Promise<RuntimeSnapshot> {
+    const analysisControlRevision = this.analysisControlRevision;
     const initialOwned = this.managedRuntime();
     if (initialOwned) return initialOwned;
     const settings = this.observedSettings ?? (await this.settings());
@@ -221,16 +225,19 @@ export class CaptureController {
       if (external) {
         this.observedSettings = settings;
         let externalStopping = false;
+        let analysisIssue = null;
         try {
-          const reply = await runtimeControl(
+          const reply = await readCaptureStatus(
             settings.home,
             external.pid,
-            'status',
             settings.control.timeoutSeconds,
           );
           const respondingOwned = this.managedRuntime();
           if (respondingOwned) return respondingOwned;
+          if (analysisControlRevision !== this.analysisControlRevision)
+            return this.runtime(settings.interval);
           external.mode = reply.analysisEnabled ? 'full' : 'capture-only';
+          analysisIssue = reply.analysisIssue;
           if (reply.state === 'stopped') {
             this.observedSettings = null;
             this.state = {
@@ -245,6 +252,8 @@ export class CaptureController {
         }
         const finalOwned = this.managedRuntime();
         if (finalOwned) return finalOwned;
+        if (analysisControlRevision !== this.analysisControlRevision)
+          return this.runtime(settings.interval);
         this.state = {
           state:
             externalStopping ||
@@ -255,10 +264,11 @@ export class CaptureController {
           pid: external.pid,
           origin: 'external',
           mode: external.mode,
+          analysisIssue,
           message:
             external.mode === 'capture-only'
               ? '独立进程正在仅截图，活动分析按完整模式启动后提供'
-              : '独立进程正在运行截图、分析与活动记录',
+              : '独立进程正在采集，已开启分析',
         };
       } else {
         this.observedSettings = null;
@@ -285,8 +295,35 @@ export class CaptureController {
       revision: ++this.revision,
     };
   }
-  read(): Promise<RuntimeSnapshot> {
-    return this.snapshot();
+  async read(): Promise<RuntimeSnapshot> {
+    const owned = this.managed;
+    if (!owned) return this.snapshot();
+    if (
+      this.state.state === 'running' &&
+      owned.mode === 'full' &&
+      !this.changingMode
+    ) {
+      const revision = ++owned.statusRevision;
+      try {
+        const reply = await readCaptureStatus(
+          owned.home,
+          owned.pid,
+          owned.control.timeoutSeconds,
+        );
+        if (
+          this.managed === owned &&
+          owned.statusRevision === revision &&
+          !this.changingMode &&
+          this.state.state === 'running' &&
+          owned.mode === 'full'
+        ) {
+          this.state = { ...this.state, analysisIssue: reply.analysisIssue };
+        }
+      } catch {
+        // 保留最近确认的故障，等待下次状态读取。
+      }
+    }
+    return this.runtime(owned.interval);
   }
   start(): Promise<RuntimeSnapshot> {
     this.stopRequested = false;
@@ -309,6 +346,8 @@ export class CaptureController {
       const mode: CaptureMode = this.analysisPreference
         ? 'full'
         : 'capture-only';
+      if (mode === 'full') await this.requireAnalysisModel?.(settings.home);
+      if (this.stopRequested) return this.read();
       const python = path.join(this.root, '.venv/bin/python');
       await access(python, constants.X_OK);
       const cache = this.cacheRoot ?? path.join(this.root, 'desktop/.cache');
@@ -374,7 +413,11 @@ export class CaptureController {
         if (!input) continue;
         input.pipe(output, { end: false });
         createInterface({ input }).on('line', (line) => {
-          if (/^\[[^\]]+\] (?:screenshot|mini) 目标路径：/u.test(line)) return;
+          if (
+            line.includes('scening：segmented ') ||
+            /^\[[^\]]+\] (?:screenshot|mini) 目标路径：/u.test(line)
+          )
+            return;
           const preview = captureProgressText(line);
           if (!preview) return;
           lastLine = preview.slice(-PROGRESS_PREVIEW_LENGTH);
@@ -417,6 +460,7 @@ export class CaptureController {
         mode,
         home: settings.home,
         control: settings.control,
+        statusRevision: 0,
       };
       if (this.stopRequested) {
         this.state = { ...this.state, state: 'stopping' };
@@ -543,6 +587,14 @@ export class CaptureController {
       try {
         const current = await this.snapshot();
         if (current.capture.state === 'unsupported') return current;
+        if (enabled && !current.analysisEnabled && this.requireAnalysisModel) {
+          const home =
+            this.managed?.home ??
+            this.observedSettings?.home ??
+            (await this.settings()).home;
+          await this.requireAnalysisModel(home);
+        }
+        if (this.stopRequested) return this.read();
         this.analysisPreference = enabled;
         if (!('pid' in current.capture))
           return this.runtime(current.refreshIntervalSeconds);
@@ -577,11 +629,16 @@ export class CaptureController {
           ...current.capture,
           state: reply.state === 'running' ? 'running' : 'stopping',
           mode: reply.analysisEnabled ? 'full' : 'capture-only',
+          analysisIssue: null,
           message: reply.analysisEnabled
             ? '分析已开启，采集持续运行'
             : '分析已关闭，继续保存截图',
         };
-        if (owned) owned.mode = this.state.mode;
+        this.analysisControlRevision++;
+        if (owned) {
+          owned.mode = this.state.mode;
+          owned.statusRevision++;
+        }
         this.publish();
         return this.runtime(current.refreshIntervalSeconds);
       } finally {

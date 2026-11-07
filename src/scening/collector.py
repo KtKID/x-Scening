@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime
 import math
+from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 import time
@@ -16,8 +17,10 @@ from scening.capture import Frame, NativeBackend, display_at
 from scening.frame_store import BufferedFrame, Candidate, FrameStore
 from scening.selection import Action, segment_actions
 from scening.sensitive_guard import SensitiveGuard
+from scening.screen_stream import StreamFrame
 from scening.screenshot_index import rebuild_day
 from scening.capture_metadata import save_capture
+from scening.observer_config import load_config
 
 
 class SensingCollector:
@@ -27,7 +30,11 @@ class SensingCollector:
                  clock=time.monotonic, wall_clock=None):
         self.config = config
         self.settings = config.scening
-        self.backend = backend if backend is not None else NativeBackend(min(self.settings.shutdownTimeoutSeconds,config.control.timeoutSeconds))
+        self.backend = backend if backend is not None else NativeBackend(
+            min(self.settings.shutdownTimeoutSeconds, config.control.timeoutSeconds),
+            self.settings.monitorRefreshSeconds, config.captureTimeoutSeconds)
+        self._prepare_capture = getattr(self.backend, 'prepare_capture', None)
+        self._pause_capture = getattr(self.backend, 'pause_capture', None)
         if app_provider is None:
             from scening.app_identity import frontmost_application
             app_provider = frontmost_application
@@ -35,6 +42,8 @@ class SensingCollector:
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now().astimezone())
         self.store = FrameStore(config.screenshotDir, self.settings.jpegQuality)
+        self._config_path = None
+        self._config_version = None
         # 隐私闸门：privacy块缺失或关闭时为None，行为与未接入一致
         self.guard = SensitiveGuard(config.privacy) if config.privacy is not None else None
         self.candidates = Queue(maxsize=self.settings.candidateQueueSize)
@@ -47,6 +56,7 @@ class SensingCollector:
         self._closed = False
         self._displays = []
         self._frames = {}
+        self._observed_apps = {}
         self._last_monitor = None
         self._last_refresh = None
         self._next_action = None
@@ -142,6 +152,7 @@ class SensingCollector:
         for frame in self._frames.values():
             frame.image.close()
         self._frames.clear()
+        self._observed_apps.clear()
 
     def next_candidate(self, timeout=None):
         """等待一份候选；等待超时返回 None，后台失败或首帧长期失败抛异常。
@@ -189,9 +200,7 @@ class SensingCollector:
         if displays != self._displays:
             changed = bool(self._displays)
             self._clear_state()
-            for frame in self._frames.values():
-                frame.image.close()
-            self._frames.clear()
+            self._close_frames()
             self._displays = displays
             self._status('topology_changed' if changed else 'displays',
                          '屏幕布局更新，重建缓存和事件基准',
@@ -206,7 +215,9 @@ class SensingCollector:
             return None, None
 
     def _capture(self):
-        """刷新各屏帧；应用在抓屏前后相同才归属，否则标记未知。"""
+        """读取各屏最新帧。异步帧时间落在应用身份一致的观测区间内才归属。"""
+        if self._prepare_capture is not None:
+            self._prepare_capture(self._displays, self.capture_fps)
         failed = []
         for display in self._displays:
             if self._stop.is_set():
@@ -214,19 +225,45 @@ class SensingCollector:
             try:
                 before = self._application(display)
                 at = self.wall_clock()
-                image = self.backend.grab(display)
+                sample = self.backend.grab(display)
+                if sample is None:
+                    self._observed_apps[display.index] = (at, before)
+                    continue
                 after = self._application(display)
-                if self._stop.is_set():
-                    image.close()
-                    break
-                app, bundle = before if before == after else (None, None)
-                frame = Frame(image, at, display, app, bundle)
                 previous = self._frames.get(display.index)
+                identity = before if before == after else (None, None)
+                if isinstance(sample, StreamFrame):
+                    end = self.wall_clock()
+                    previous_app = self._observed_apps.get(display.index)
+                    self._observed_apps[display.index] = (end, after)
+                    captured_at = datetime.fromtimestamp(sample.captured_at, at.tzinfo)
+                    if not at <= captured_at <= end and not (
+                        previous_app and previous_app[0] <= captured_at <= end and previous_app[1] == identity
+                    ):
+                        identity = (None, None)
+                    at = captured_at
+                    if sample.image is None:
+                        if previous is None or at <= previous.at:
+                            continue
+                        image = previous.image
+                        if identity != (previous.app, previous.bundle_id):
+                            identity = (None, None)
+                    else:
+                        image = sample.image
+                else:
+                    image = sample
+                if self._stop.is_set():
+                    if previous is None or image is not previous.image:
+                        image.close()
+                    break
+                app, bundle = identity
+                frame = Frame(image, at, display, app, bundle)
                 self._frames[display.index] = frame
-                if previous:
+                if previous and previous.image is not image:
                     previous.image.close()
                 self.total_frames += 1
             except Exception as error:
+                self._observed_apps.pop(display.index, None)
                 previous = self._frames.pop(display.index, None)
                 if previous:
                     previous.image.close()
@@ -330,17 +367,19 @@ class SensingCollector:
             self.store.discard(saved)
             self._status('stale_candidate', '略过早于已发布图片的延迟候选')
             return
+        self._refresh_screenshot_directory()
+        config = self.config
         if isinstance(saved, BufferedFrame) or self.store.event_home in saved.path.resolve().parents:
             saved = self.store.promote(saved, reason)
         self._sample_sequence += 1
-        candidate = Candidate(saved, reason, self._generation, self._sample_sequence)
+        candidate = Candidate(saved, reason, self._generation, self._sample_sequence, config.screenshotDir)
         try:
-            save_capture(self.config, candidate, self.run_id)
+            save_capture(config, candidate, self.run_id)
         except (OSError, ValueError) as error:
             self._status('metadata_failed', '采集元信息保存失败：' + str(error))
         # 原图与采集事实先发布，再刷新派生清单并通知；队列溢出仍可从正式文件恢复。
         try:
-            rebuild_day(self.config, saved.at.date().isoformat())
+            rebuild_day(config, saved.at.date().isoformat())
         except (OSError, ValueError) as error:
             self._status('index_failed', '截图索引刷新失败：' + str(error))
         try:
@@ -354,11 +393,37 @@ class SensingCollector:
                 self._status('queue_dropped', '候选消费较慢，保留较新图；已有正式图继续保留',
                              discontinuity=True, droppedAt=dropped.saved.at.isoformat(),
                              screenshot=str(dropped.saved.path))
-                candidate = Candidate(saved, reason, self._generation, self._sample_sequence)
+                candidate = Candidate(saved, reason, self._generation, self._sample_sequence, config.screenshotDir)
             self.candidates.put_nowait(candidate)
         self._last_emitted = saved.at
         self._status('candidate', '候选已选出', screenshot=str(saved.path),
                      display=saved.display.index, reason=reason, capturedAt=saved.at.isoformat())
+
+    def watch_screenshot_directory(self, config_path):
+        """启动采集前登记当前配置文件；采集线程在候选提交边界检查文件版本。"""
+        self._config_path = Path(config_path).expanduser().resolve()
+
+    def _refresh_screenshot_directory(self):
+        """只应用变更后的截图根。目标准备失败时停止本次提交，下张图重试。
+
+        桌面通过原子替换保存配置；文件版本未变时仅检查文件属性。保留启动时
+        的 home 和策略值，新根准备好后才替换正式截图保存路径。
+        """
+        if self._config_path is None:
+            return
+        stat = self._config_path.stat()
+        version = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+        if version == self._config_version:
+            return
+        try:
+            directory = load_config(self._config_path).screenshotDir
+        except ValueError as error:
+            raise OSError('截图保存目录读取失败：' + str(error)) from error
+        if directory != self.config.screenshotDir:
+            config = self.config.with_overrides(screenshotDir=directory)
+            self.store.set_screenshot_directory(directory)
+            self.config = config
+        self._config_version = version
 
     def _select_actions(self):
         """整理已完成操作，保留末段末条 after；选中图发布成功后清理事件图。"""
@@ -398,18 +463,18 @@ class SensingCollector:
         返回值为空；候选和状态分别通过公开队列接口取得。后端/保存异常上抛。
         """
         now = self.clock() if now is None else now
-        self._refresh(now)
         idle = self.backend.idle_seconds()
         paused = self.backend.display_asleep() or idle >= self.settings.sensingIdleSeconds
         if paused:
             if not self._paused:
+                if self._pause_capture is not None:
+                    self._pause_capture()
                 self._clear_state()
-                for frame in self._frames.values():
-                    frame.image.close()
-                self._frames.clear()
+                self._close_frames()
                 self._status('paused', '系统空闲或显示器休眠，暂停采集', discontinuity=True)
             self._paused = True
             return
+        self._refresh(now)
         if self._paused:
             self._clear_state()
             self._status('resumed', '输入恢复，重建新帧后继续观察', discontinuity=True)

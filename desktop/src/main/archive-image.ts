@@ -27,7 +27,7 @@ export class ArchiveImageExporter {
       const archive = DailyArchiveSchema.parse(raw);
       const chosen = await dialog.showSaveDialog(owner, {
         title: '保存当日档案',
-        defaultPath: `Observer-${archive.review.day}${archive.source === 'demo' ? '-测试数据' : ''}.png`,
+        defaultPath: `x-scening-${archive.review.day}${archive.source === 'demo' ? '-测试数据' : ''}.png`,
         filters: [{ name: 'PNG 图片', extensions: ['png'] }],
       });
       if (chosen.canceled || !chosen.filePath) return { status: 'cancelled' };

@@ -112,6 +112,11 @@ await cp(path.join(root, 'src/scening'), path.join(output, 'src/scening'), {
 await stagePythonRuntime(root, output, pythonVersion, env);
 run(path.join(output, '.venv/bin/python'), [
   '-B',
+  path.join(output, 'src/scening/screen_stream.py'),
+  '--bundled',
+]);
+run(path.join(output, '.venv/bin/python'), [
+  '-B',
   '-c',
   'import sys, PIL, pydantic, yaml, mss, pynput, Quartz, Vision; print("内置Python依赖检查通过", sys.version.split()[0])',
 ]);

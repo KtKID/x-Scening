@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createPackage } from '@electron/asar';
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFile,
@@ -23,6 +24,12 @@ import {
 
 const project = path.resolve(import.meta.dirname, '../..');
 const mac = process.platform === 'darwin' && process.arch === 'arm64';
+
+function signFixture(app: string) {
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', app], {
+    stdio: 'pipe',
+  });
+}
 
 async function fixture(
   run: (
@@ -67,7 +74,7 @@ async function fixture(
     await mkdir(path.join(app, 'Contents/MacOS'), { recursive: true });
     await writeFile(
       path.join(app, 'Contents/Info.plist'),
-      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.2.0</string><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>`,
+      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>0.2.0</string><key>CFBundleIdentifier</key><string>local.x-scening.desktop</string><key>CFBundleExecutable</key><string>x-scening</string><key>CFBundleName</key><string>x-scening</string><key>CFBundleDisplayName</key><string>x-scening</string><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>`,
     );
     await copyFile(
       path.join(project, 'desktop/resources/icons/app-icon.icns'),
@@ -78,7 +85,7 @@ async function fixture(
         project,
         'desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
       ),
-      path.join(app, 'Contents/MacOS/Observer'),
+      path.join(app, 'Contents/MacOS/x-scening'),
     );
     await writeFile(
       path.join(resources, 'local-client-build.json'),
@@ -96,6 +103,7 @@ async function fixture(
       await createPackage(input, path.join(resources, 'app.asar'));
     };
     await rewrite('publish');
+    signFixture(app);
     await run(root, app, rewrite);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -115,7 +123,28 @@ await test('release: 内置运行环境缺失时拒绝发布', { skip: !mac }, (
       recursive: true,
       force: true,
     });
+    signFixture(app);
     await assert.rejects(verifyMacRelease(app, 'v0.2.0'), /内置/);
+  }),
+);
+
+await test('release: 主程序名或整包签名不一致时拒绝发布', { skip: !mac }, () =>
+  fixture(async (_root, app) => {
+    const config = path.join(
+      app,
+      'Contents/Resources/kmh-runtime/catalog.json',
+    );
+    await writeFile(config, '{"modified":true}');
+    await assert.rejects(verifyMacRelease(app, 'v0.2.0'), /codesign/);
+    const plist = path.join(app, 'Contents/Info.plist');
+    execFileSync('/usr/bin/plutil', [
+      '-replace',
+      'CFBundleExecutable',
+      '-string',
+      'Legacy',
+      plist,
+    ]);
+    await assert.rejects(verifyMacRelease(app, 'v0.2.0'), /统一为 x-scening/);
   }),
 );
 

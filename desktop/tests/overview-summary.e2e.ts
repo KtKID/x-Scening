@@ -55,7 +55,7 @@ const app = await electron.launch({
   executablePath: path.join(
     desktop,
     process.env.OVERVIEW_SUMMARY_PACKAGED === '1'
-      ? 'release/mac-arm64/x-scening.app/Contents/MacOS/Observer'
+      ? 'release/mac-arm64/x-scening.app/Contents/MacOS/x-scening'
       : 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
   ),
   args: process.env.OVERVIEW_SUMMARY_PACKAGED === '1' ? [] : [desktop],

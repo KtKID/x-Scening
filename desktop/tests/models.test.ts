@@ -103,6 +103,27 @@ await test('models: 保存、重读、空密钥编辑与删除；界面只收到
       (await stat(path.join(home, 'observer-model.patch.yml'))).mode & 0o777,
       0o600,
     );
+
+    await test('models: 截图分析要求所选图片模型有凭据，兼容 KMH 的旧 .env', () =>
+      fixture(async (service, home) => {
+        const inherited = process.env.MINIMAX_CN_API_KEY;
+        delete process.env.MINIMAX_CN_API_KEY;
+        try {
+          await assert.rejects(service.requireImageModel(), /设置 → 模型/);
+          const file = path.join(home, '.env');
+          await writeFile(file, 'OPENAI_API_KEY=fixture-unselected\n');
+          await assert.rejects(service.requireImageModel(), /设置 → 模型/);
+          await writeFile(file, 'MINIMAX_CN_API_KEY=fixture-selected\n');
+          await service.requireImageModel();
+          await service.save(request);
+          await service.requireImageModel();
+          await rm(file);
+          await assert.rejects(service.requireImageModel(), /设置 → 模型/);
+        } finally {
+          if (inherited !== undefined)
+            process.env.MINIMAX_CN_API_KEY = inherited;
+        }
+      }));
     const before = await readFile(path.join(home, '.env'), 'utf8');
     const edited = await service.save({
       ...request,
@@ -168,7 +189,7 @@ await test('models: 识别既有KMH凭据、自定义API、模型切换和删除
     assert.equal(legacy.saved[0]?.provider, 'minimax-cn');
     assert.equal(legacy.saved[0]?.credential, 'saved');
     await service.save(request);
-    await service.save({
+    const registered = await service.save({
       provider: 'my-gateway',
       kind: 'custom',
       apiKey: 'custom-test-secret',
@@ -177,6 +198,10 @@ await test('models: 识别既有KMH凭据、自定义API、模型切换和删除
       model: 'vision-model',
       reasoningEffort: '',
     });
+    assert.deepEqual(registered.selected, legacy.selected);
+    assert.ok(
+      registered.saved.some((entry) => entry.provider === 'my-gateway'),
+    );
     const switched = await service.select({
       provider: 'openai',
       model: 'fixture-vision',

@@ -22,12 +22,12 @@ from scening import runtime_logging
 from scening.activity_memory import ActivityFrame, ActivityMemory, ObservationResult, SummaryActivity, observation_text, captured_app_names
 from scening.app_identity import frontmost_application
 from scening.analysis_batch import BatchFrame, compose_batch, frame_metadata
-from scening.kmh_interpreter import KMHInterpreter
-from scening.observer_config import load_config
+from scening.kmh_interpreter import KMHCallError, KMHInterpreter
+from scening.observer_config import DEV_CONFIG_PATH, load_config
 from scening.collector import SensingCollector
 from scening.activity_evidence import EvidenceStore
 from scening.task_store import read_activities,digest
-from scening.runtime_control import RuntimeControl, AnalysisCancelled
+from scening.runtime_control import AnalysisIssue, RuntimeControl, AnalysisCancelled
 from scening.screenshot_index import rebuild_day
 from scening.screenshot_queue import ScreenshotQueue, pending_images, analysis_lock
 from scening.capture_metadata import save_capture
@@ -268,11 +268,13 @@ class ActivityPipeline:
         start=started+timedelta(seconds=(index-1)*interval)
         self.summarize(start,start+timedelta(seconds=interval))
 
-def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_timeout=None,*,config=None,capture_only=False):
+def run_activity(home=None, interval=None, count=None, summary_on_exit=False,
+                 model_timeout=None, *, config=None, capture_only=False, config_path=None):
     """运行单个持锁采集进程，分析开关在本进程内生效。
 
     控制线程只切换意图、取消模型并通知停止；本线程独占批次、基准与正式JSON提交。
     关闭后旧代次结果结束，原图保留；新段先补当天积压，再消费实时新图并重新计总结周期。
+    config_path 指向可修改的配置文件，运行中只在图片提交边界采用其中的截图目录。
     返回0为正常完成（含用户取消），失败记日志并返回1；全部退出路径清理控制socket。
     """
     runtime_logging.initialize_logging()
@@ -328,11 +330,15 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                 attempts=failures=0
                 last_generation=None
                 segment_epoch=None
-                with SensingCollector(settings,app_provider=frontmost_application) as source:
+                collector=SensingCollector(settings,app_provider=frontmost_application)
+                if config_path is not None:
+                    collector.watch_screenshot_directory(config_path)
+                with collector as source:
                     while not stop.is_set() and (count==0 or attempts<count):
                         loop_start=time.monotonic()
                         control.changed.clear()
                         enabled,epoch,since,cancelled=control.snapshot()
+                        image_settings=source.config if config_path is not None else settings
                         if segment_epoch!=epoch:
                             if engine is not None:
                                 if queue is not None:
@@ -357,9 +363,9 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                                     log_event({'stage':'control','result':'failed','message':str(error)})
                                     control.changed.wait(settings.control.pollSeconds)
                                     continue
-                                engine=ActivityPipeline(home,interpreter,config=settings,control=control,epoch=epoch)
+                                engine=ActivityPipeline(home,interpreter,config=image_settings,control=control,epoch=epoch)
                                 queue_day=datetime.now().astimezone().date().isoformat()
-                                queue=ScreenshotQueue(settings,queue_day,
+                                queue=ScreenshotQueue(image_settings,queue_day,
                                     backlog=initial_pending if epoch==0 and queue_day==initial_day else None)
                                 log_event({'stage':'analysis_queue','result':'started','day':queue_day,
                                            'backlogCount':len(queue.backlog),'message':'按最早未分析截图先补积压'})
@@ -369,6 +375,14 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                             failures+=1
                             log_event({'stage':'scening','result':'failed','message':str(error)})
                             break
+                        image_settings=source.config if config_path is not None else settings
+                        if queue is not None and queue.config.screenshotDir!=image_settings.screenshotDir:
+                            queue.finish(engine,'截图目录已切换，旧目录未满批原图保留')
+                            engine.config = image_settings
+                            engine.memory = ActivityMemory(home, screenshot_dir=image_settings.screenshotDir)
+                            queue = ScreenshotQueue(image_settings, datetime.now().astimezone().date().isoformat(),
+                                                    backlog=[])
+                            control.set_analysis_issue(epoch, None)
                         for event in source.drain_status():
                             log_event(event)
                             if event.get('result')=='queue_dropped' and queue is not None:
@@ -390,8 +404,12 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                             saved=candidate.saved
                             at=saved.at.replace(microsecond=0)
                             prepared=candidate.prepared
+                            capture_settings=image_settings
+                            if (candidate.screenshot_dir is not None
+                                    and candidate.screenshot_dir != image_settings.screenshotDir):
+                                capture_settings = image_settings.with_overrides(screenshotDir=candidate.screenshot_dir)
                             try:
-                                save_capture(settings,candidate,capture_run_id)
+                                save_capture(capture_settings,candidate,capture_run_id)
                             except (OSError,ValueError) as error:
                                 log_event({'stage':'capture_metadata','result':'failed','message':str(error)})
                             log_event({'stage':'candidate','result':'started','round':attempts+1,'capturedAt':saved.at.isoformat()})
@@ -399,8 +417,11 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                                 log_event({'stage':'image_prepare','result':'saved','mode':'scening_candidate','screenshot':str(prepared.original),'mini':str(prepared.mini),'originalSize':prepared.original_size,'miniSize':prepared.mini_size,'display':saved.display.index,'reason':candidate.reason})
                                 if engine is not None and not stop.is_set() and (epoch==0 or saved.at>=since):
                                     # 兼容显式交付的历史候选；当前日期统一由持久原图队列选择。
-                                    if at.date().isoformat()!=queue.day and at.date()!=datetime.now().astimezone().date():
-                                        with analysis_lock(settings,at.date().isoformat(),cancel_event=cancelled,wait=True):
+                                    if (at.date().isoformat() != queue.day
+                                            and at.date() != datetime.now().astimezone().date()
+                                            and capture_settings.screenshotDir == queue.config.screenshotDir):
+                                        with analysis_lock(capture_settings, at.date().isoformat(),
+                                                           cancel_event=cancelled, wait=True):
                                             engine.process(prepared,at,saved.app,saved.bundle_id,screen=saved.display.index,sample_sequence=candidate.sample_sequence,continuity=candidate.generation)
                             except AnalysisCancelled:
                                 if engine is not None:
@@ -421,10 +442,13 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                                 current_day=datetime.now().astimezone().date().isoformat()
                                 if queue.day!=current_day and not queue.backlog:
                                     queue.finish(engine,'跨日，前日未满批原图保留')
-                                    queue=ScreenshotQueue(settings,current_day,backlog=[])
+                                    queue=ScreenshotQueue(image_settings,current_day,backlog=[])
                                     engine.reset('跨日，实时新图重新满批')
+                                    control.set_analysis_issue(epoch, None)
                                 try:
                                     queue_result=queue.step(engine,cancel_event=cancelled)
+                                    if queue_result not in ('busy','blocked','waiting_retry'):
+                                        control.set_analysis_issue(epoch, None)
                                     if queue_result not in ('waiting','busy','blocked','waiting_retry'):
                                         log_event({'stage':'analysis_queue','result':queue_result,'day':queue.day,
                                                    'backlogCount':len(queue.backlog)})
@@ -432,6 +456,12 @@ def run_activity(home=None,interval=None,count=None,summary_on_exit=False,model_
                                     raise
                                 except (OSError,ValueError,RuntimeError) as error:
                                     failures+=1
+                                    if queue.failed:
+                                        paused = queue.failed_attempts > queue.config.analysis.maxRetries
+                                        reason = (error.reason if isinstance(error, KMHCallError)
+                                                  else '截图分析失败，请查看采集日志')
+                                        control.set_analysis_issue(epoch, AnalysisIssue(
+                                            state='paused' if paused else 'retrying', reason=reason))
                                     engine.reset('分析队列失败，保留待分析原图')
                                     log_event({'stage':'analysis_queue','result':'failed','message':str(error),
                                                'day':queue.day,'retry':queue.retry_hint()})
@@ -508,7 +538,11 @@ def main(argv=None):
             log_event({'stage':'configuration','result':'failed','message':str(error)})
             print(str(error),file=sys.stderr)
             return 2
-        return run_activity(config=settings,summary_on_exit=args.summary_on_exit,capture_only=args.capture_only)
+        config_path=args.config
+        if config_path is None and DEV_CONFIG_PATH.is_file():
+            config_path=DEV_CONFIG_PATH
+        return run_activity(config=settings,summary_on_exit=args.summary_on_exit,capture_only=args.capture_only,
+                            config_path=config_path if args.screenshot_dir is None else None)
     except (OSError,ValueError,RuntimeError) as error:
         try:
             log_event({'stage':'activity_observer','result':'failed','message':str(error)})

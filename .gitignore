@@ -35,6 +35,7 @@ browser/
 /data/snapshot-v1/
 
 # 桌面客户端的项目内环境与生成物
+/.cache/
 /desktop/.cache/
 /desktop/out/
 /desktop/release/

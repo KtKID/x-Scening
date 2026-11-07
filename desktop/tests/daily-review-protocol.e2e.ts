@@ -22,7 +22,7 @@ const executable =
   process.env.OBSERVER_PACKAGE_PATH ??
   path.join(
     desktop,
-    'release/daily-review-single-protocol/mac-arm64/x-scening.app/Contents/MacOS/Observer',
+    'release/daily-review-single-protocol/mac-arm64/x-scening.app/Contents/MacOS/x-scening',
   );
 const day = '2026-10-31';
 const response =

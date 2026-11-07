@@ -1,14 +1,25 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { ModelCatalogSchema } from '../src/shared/models';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const desktop = path.join(root, 'desktop');
-const pictures = path.join(root, 'tmp/model-settings-preview');
-const evidence = path.join(root, 'reports/model-settings-20261105/evidence');
+const evidence = path.join(
+  root,
+  'reports/model-analysis-provider/20261106-01/evidence',
+);
+const pictures = evidence;
+const appPath = process.env.OBSERVER_MODELS_TEST_APP ?? desktop;
 await mkdir(pictures, { recursive: true });
 await mkdir(evidence, { recursive: true });
 const temporary = await mkdtemp(path.join(root, 'tmp/model-window-'));
@@ -19,6 +30,14 @@ const document = parseDocument(
 document.set('home', path.join(temporary, 'home'));
 document.set('screenshotDir', path.join(temporary, 'pictures'));
 await writeFile(config, document.toString());
+await symlink(path.join(root, '.venv'), path.join(temporary, '.venv'));
+await symlink(path.join(root, 'src'), path.join(temporary, 'src'));
+const testCache = path.join(temporary, 'desktop/.cache');
+await mkdir(testCache, { recursive: true });
+await symlink(
+  path.join(desktop, '.cache/kmh-runtime'),
+  path.join(testCache, 'kmh-runtime'),
+);
 const catalog = ModelCatalogSchema.parse(
   JSON.parse(
     await readFile(
@@ -40,10 +59,10 @@ const app = await electron.launch({
     desktop,
     'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
   ),
-  args: [desktop],
+  args: [appPath],
   env: {
     ...testEnv,
-    OBSERVER_PROJECT_ROOT: root,
+    OBSERVER_PROJECT_ROOT: temporary,
     OBSERVER_CONFIG: config,
     ...(process.env.OBSERVER_TEST_COVERAGE === '1'
       ? { NODE_V8_COVERAGE: path.join(evidence, 'coverage/electron') }
@@ -54,6 +73,7 @@ const app = await electron.launch({
 const observations: string[] = [];
 try {
   const page = await app.firstWindow();
+  page.setDefaultTimeout(10_000);
   if (process.env.OBSERVER_TEST_COVERAGE === '1')
     await page.coverage.startJSCoverage();
   const errors: string[] = [];
@@ -61,6 +81,13 @@ try {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   const section = page.getByRole('region', { name: '模型设置', exact: true });
   await section.getByLabel('提供商', { exact: true }).waitFor();
+  const analysis = section.getByRole('form', { name: '分析配置' });
+  const supplier = analysis.getByRole('button', { name: /^分析供应商 / });
+  const choices = analysis.getByRole('group', { name: '分析供应商' });
+  const analysisModel = analysis.getByRole('button', { name: /^分析模型 / });
+  const models = analysis.getByRole('group', { name: '分析模型' });
+  const apply = analysis.getByRole('button', { name: '应用到分析' });
+  assert.equal(await supplier.isDisabled(), true);
   assert.deepEqual(
     await section
       .getByLabel('提供商', { exact: true })
@@ -101,8 +128,13 @@ try {
     .waitFor();
   observations.push('密钥遮挡，保存后清空输入；编辑留空可保留原凭据。');
   const zai = catalog.catalog.find((entry) => entry.id === 'zai-coding-cn');
-  const zaiModel = zai?.models.find((entry) => entry.image);
+  assert.ok(zai);
+  const zaiModel = zai.models.find(
+    (entry) => entry.image && entry.efforts.length,
+  );
   assert.ok(zaiModel);
+  const effort = zaiModel.efforts[0];
+  assert.ok(effort);
   await section
     .getByLabel('提供商', { exact: true })
     .selectOption('zai-coding-cn');
@@ -119,27 +151,100 @@ try {
     .getByRole('status')
     .filter({ hasText: '供应商已保存' })
     .waitFor();
-  await section
-    .getByLabel('当前模型', { exact: true })
-    .selectOption(JSON.stringify(['openai', model.id]));
+  await analysis
+    .getByText(`当前使用 openai / ${model.name}`, { exact: true })
+    .waitFor();
+  await supplier.press('Enter');
+  await choices.waitFor();
+  assert.deepEqual(await choices.getByRole('button').allTextContents(), [
+    'openai',
+    'zai-coding-cn',
+  ]);
+  await page.keyboard.press('Escape');
+  await choices.waitFor({ state: 'hidden' });
+  await supplier.click();
+  await choices.waitFor();
+  const triggerBox = await supplier.boundingBox();
+  const menuBox = await choices.boundingBox();
+  assert.ok(triggerBox && menuBox);
+  assert.ok(
+    Math.abs(triggerBox.x - menuBox.x) <= 1,
+    JSON.stringify({ triggerBox, menuBox }),
+  );
+  assert.ok(
+    Math.abs(triggerBox.width - menuBox.width) <= 1,
+    JSON.stringify({ triggerBox, menuBox }),
+  );
+  const analysisBox = await analysis.boundingBox();
+  assert.ok(analysisBox);
+  await page.screenshot({
+    path: path.join(pictures, 'analysis-provider.png'),
+    clip: {
+      x: analysisBox.x - 8,
+      y: analysisBox.y - 8,
+      width: analysisBox.width + 16,
+      height:
+        Math.max(
+          analysisBox.height,
+          menuBox.y + menuBox.height - analysisBox.y,
+        ) + 20,
+    },
+  });
+  await page.screenshot({
+    path: path.join(pictures, 'analysis-provider-menu.png'),
+  });
+  await choices
+    .getByRole('button', { name: 'zai-coding-cn', exact: true })
+    .click();
+  await choices.waitFor({ state: 'hidden' });
+  await analysis
+    .getByText(`当前使用 openai / ${model.name}`, { exact: true })
+    .waitFor();
+  await analysisModel.click();
+  await models.waitFor();
+  assert.deepEqual(
+    await models.getByRole('button').allTextContents(),
+    zai.models.map((item) => `${item.name}${item.image ? '' : ' · 仅文字'}`),
+  );
+  for (const button of await models
+    .getByRole('button', { name: /仅文字/ })
+    .all())
+    assert.equal(await button.isDisabled(), true);
+  await models
+    .getByRole('button', { name: zaiModel.name, exact: true })
+    .first()
+    .click();
+  await analysis.getByRole('button', { name: /^思考等级 / }).click();
+  const efforts = analysis.getByRole('group', { name: '思考等级' });
+  await efforts.getByRole('button', { name: effort, exact: true }).click();
+  await apply.click();
   await section
     .getByRole('status')
-    .filter({ hasText: '当前模型已更新' })
+    .filter({ hasText: '分析配置已更新' })
     .waitFor();
-  assert.equal(
-    await section.getByLabel('当前模型', { exact: true }).inputValue(),
-    JSON.stringify(['openai', model.id]),
+  await analysis
+    .getByText(`当前使用 zai-coding-cn / ${zaiModel.name}`, { exact: true })
+    .waitFor();
+  assert.deepEqual(
+    (await page.evaluate(() => window.observer?.readModelSettings()))?.selected,
+    { provider: 'zai-coding-cn', model: zaiModel.id, reasoningEffort: effort },
   );
-  observations.push('两个已保存供应商展示状态，当前模型可跨供应商切换。');
+  observations.push(
+    '应用内下拉仅列已登记供应商，选择供应商后模型随之更新，应用前保留原路由，应用后重读供应商、模型和思考等级。',
+  );
   await page.screenshot({
     path: path.join(pictures, 'models-wide.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 900, height: 900 });
+  await supplier.click();
+  await choices.waitFor();
   await page.screenshot({
     path: path.join(pictures, 'models-narrow.png'),
     fullPage: true,
   });
+  await page.keyboard.press('Escape');
+  await choices.waitFor({ state: 'hidden' });
   await section
     .getByRole('button', { name: '删除供应商 zai-coding-cn' })
     .click();
@@ -153,6 +258,7 @@ try {
       .count(),
     0,
   );
+  await analysis.getByText('当前使用 待配置', { exact: true }).waitFor();
   await section.getByRole('tab', { name: '自定义模型 API' }).click();
   await section.getByLabel('自定义提供商名称').fill('local-gateway');
   await section.getByLabel('自定义 API 地址').fill('https://example.test/v1');
@@ -178,6 +284,30 @@ try {
     .getByRole('button', { name: '编辑供应商 local-gateway' })
     .waitFor();
   observations.push('删除供应商和自定义API表单可用，操作完成后列表立即更新。');
+  const credentialPath = path.join(temporary, 'home/kmh/.env');
+  const credentials = await readFile(credentialPath, 'utf8');
+  await writeFile(
+    credentialPath,
+    credentials
+      .split('\n')
+      .filter((line) => !line.includes('fixture-ui-secret'))
+      .join('\n'),
+  );
+  await page.reload();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await supplier.click();
+  assert.equal(
+    await choices
+      .getByRole('button', { name: 'openai · 待填写密钥' })
+      .isDisabled(),
+    true,
+  );
+  await page.keyboard.press('Escape');
+  await choices.waitFor({ state: 'hidden' });
+  await writeFile(credentialPath, credentials);
+  observations.push(
+    '凭据失效后已登记供应商仍可见且禁选，删除当前供应商后提示待配置。',
+  );
   await page.locator('summary').filter({ hasText: '存储与高级设置' }).click();
   await page
     .getByLabel('活动与总结目录', { exact: true })
@@ -201,11 +331,11 @@ try {
     const coverage = await page.coverage.stopJSCoverage();
     await writeFile(
       path.join(evidence, 'coverage/main-index.js.map'),
-      await readFile(path.join(desktop, 'out/main/index.js.map')),
+      await readFile(path.join(appPath, 'out/main/index.js.map')),
     );
     await writeFile(
       path.join(evidence, 'coverage/main-index.js'),
-      await readFile(path.join(desktop, 'out/main/index.js')),
+      await readFile(path.join(appPath, 'out/main/index.js')),
     );
     await writeFile(
       path.join(evidence, 'coverage/renderer-v8.json'),

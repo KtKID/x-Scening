@@ -1,6 +1,7 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -11,11 +12,14 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { localDay } from '../src/shared/protocol';
+import { ModelCatalogSchema } from '../src/shared/models';
 import { parseDocument } from 'yaml';
 
 const desktop = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const root = path.dirname(desktop);
-const evidence = path.join(root, 'tmp/desktop-capture');
+const evidence =
+  process.env.OBSERVER_CAPTURE_E2E_EVIDENCE ??
+  path.join(root, 'tmp/desktop-capture');
 await mkdir(evidence, { recursive: true });
 const temporary = await mkdtemp(path.join(evidence, 'home-'));
 const home = path.join(temporary, 'home');
@@ -51,6 +55,23 @@ config.set('home', './home');
 config.set('screenshotDir', './pictures');
 config.setIn(['desktop', 'refreshIntervalSeconds'], 0.15);
 await writeFile(path.join(temporary, 'observer.yaml'), config.toString());
+const runtime = path.join(temporary, 'desktop/.cache/kmh-runtime');
+await mkdir(runtime, { recursive: true });
+const sourceCatalog = path.join(desktop, '.cache/kmh-runtime/catalog.json');
+await copyFile(sourceCatalog, path.join(runtime, 'catalog.json'));
+const catalog = ModelCatalogSchema.parse(
+  JSON.parse(await readFile(sourceCatalog, 'utf8')),
+);
+const defaultKey = catalog.catalog.find(
+  (provider) => provider.id === catalog.defaultSelection.provider,
+)?.env[0];
+assert.ok(defaultKey);
+const env: Record<string, string> = {
+  ...process.env,
+  OBSERVER_PROJECT_ROOT: temporary,
+};
+for (const provider of catalog.catalog)
+  for (const name of provider.env) delete env[name];
 const row = {
   start: `${day}T09:00:00+08:00`,
   end: `${day}T09:30:00+08:00`,
@@ -74,7 +95,7 @@ let ownedPid: number | null = null;
 const application = await electron.launch({
   executablePath: executable,
   args: [desktop],
-  env: { ...process.env, OBSERVER_PROJECT_ROOT: temporary },
+  env,
   timeout: 30000,
 });
 try {
@@ -82,7 +103,37 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.getByRole('status').getByText('已停止', { exact: true }).waitFor();
   await page.getByRole('button', { name: '开始截屏', exact: true }).click();
+  await page.getByText(/图片分析模型还没配置/).waitFor();
+  await assert.rejects(readFile(path.join(home, 'launch-args.json')));
+  results.push({
+    id: 'model-preflight',
+    observed: '开始截屏先显示模型设置指引，缺凭据时没有启动采集进程。',
+  });
+  await mkdir(path.join(home, 'kmh'), { recursive: true });
+  await writeFile(
+    path.join(home, 'kmh/.env'),
+    `${defaultKey}=fixture-capture\n`,
+  );
+  const issueFixture = path.join(home, 'analysis-issue.json');
+  await writeFile(
+    issueFixture,
+    JSON.stringify({
+      state: 'paused',
+      reason: 'MiniMax Token Plan 用量已达上限（2056）',
+    }),
+  );
+  await page.getByRole('button', { name: '开始截屏', exact: true }).click();
   await page.getByRole('status').getByText('采集中', { exact: true }).waitFor();
+  const progress = page.locator('.capture-progress');
+  await progress
+    .filter({
+      hasText: /截图中 · 分析已暂停 · MiniMax Token Plan 用量已达上限（2056）/,
+    })
+    .waitFor();
+  await progress.screenshot({
+    path: path.join(evidence, 'analysis-paused.png'),
+  });
+  await rm(issueFixture);
   assert.equal(await page.getByLabel('选择日期').inputValue(), day);
   const cards = page.getByTestId('activity-card');
   await cards.first().waitFor();
@@ -177,6 +228,7 @@ try {
     '窗口中关闭分析应保持原Python进程',
   );
   assert.equal(captureOnly.capture.mode, 'capture-only');
+  await progress.filter({ hasText: '仅截屏' }).waitFor();
   timings.disableMs = performance.now() - disablingBegan;
   assert.ok(
     performance.now() - disablingBegan < 1000,
@@ -192,6 +244,10 @@ try {
   assert.ok(full && 'pid' in full.capture);
   assert.equal(full.capture.mode, 'full');
   assert.equal(
+    await page.getByText(/MiniMax Token Plan 用量已达上限/).count(),
+    0,
+  );
+  assert.equal(
     full.capture.pid,
     captureOnly.capture.pid,
     '窗口中开启分析应保持原Python进程',
@@ -206,6 +262,11 @@ try {
     id: 'T10',
     observed:
       '真实Electron分析开关双向切换保持同一Python进程；仅截图/完整模式对应，测试卡片与数据来源保留。',
+  });
+  results.push({
+    id: 'analysis-paused',
+    observed:
+      '采集运行时显示队列已暂停和 MiniMax 2056 原因，重新开启分析后清除。',
   });
   await page.setViewportSize({ width: 850, height: 720 });
   assert.ok(
@@ -286,7 +347,9 @@ results.push({
   observed: '退出应用后本客户端启动的采集进程已回收；正式记录只读保持。',
 });
 await writeFile(
-  path.join(root, 'reports/fix/analysis-control-20261028/electron.json'),
+  process.env.OBSERVER_CAPTURE_E2E_EVIDENCE
+    ? path.join(evidence, 'electron.json')
+    : path.join(root, 'reports/fix/analysis-control-20261028/electron.json'),
   JSON.stringify({ results, errors, timings }, null, 2),
 );
 console.log(JSON.stringify({ results, errors, timings }, null, 2));

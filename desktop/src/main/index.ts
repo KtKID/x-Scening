@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   powerMonitor,
@@ -33,6 +34,7 @@ import {
   BackfillQuerySchema,
   BackfillActionSchema,
   ScreenshotDirectoryActionSchema,
+  ScreenshotDirectoryChoiceSchema,
   BackgroundsReplySchema,
 } from '../shared/protocol';
 import type { Snapshot } from '../shared/protocol';
@@ -59,7 +61,7 @@ import {
 import { readLocalBuild } from '../version-check/check';
 import { createLocalClientRestart } from '../version-check/restart';
 import { scheduleMacRestart } from '../version-check/mac-restart';
-import { localClientPaths } from '../version-check/paths';
+import { CLIENT_NAME, localClientPaths } from '../version-check/paths';
 import { RuntimeModeSchema } from '../runtime-mode';
 import { prepareRuntimePaths, resolveSourceRoot } from './runtime-paths';
 import { resolveApplicationRoot } from './application-root';
@@ -70,7 +72,7 @@ import {
 } from '../version-check/protocol';
 
 const archiveImages = new ArchiveImageExporter();
-app.setName('x-scening');
+app.setName(CLIENT_NAME);
 const directory = path.dirname(fileURLToPath(import.meta.url));
 declare const __OBSERVER_LOCAL_BUILD__: unknown;
 declare const __OBSERVER_RUNTIME_MODE__: unknown;
@@ -105,7 +107,6 @@ const runtimePaths = await prepareRuntimePaths(
 const configPath = runtimePaths.configPath;
 const cacheRoot = runtimePaths.cacheRoot;
 process.env.SCENING_LOG_DIR = runtimePaths.logRoot;
-const capture = new CaptureController(projectRoot, configPath, cacheRoot);
 const presets = new PresetService(projectRoot, configPath);
 const settings = new SettingsService(projectRoot, configPath);
 const kmhRuntime = app.isPackaged
@@ -121,6 +122,12 @@ const modelSettings = new ModelSettingsService(
   settings,
   kmhRuntime,
   configPath,
+);
+const capture = new CaptureController(
+  projectRoot,
+  configPath,
+  cacheRoot,
+  (home) => modelSettings.requireImageModel(home),
 );
 const taskTimeline = new TaskTimelineService(
   projectRoot,
@@ -324,7 +331,7 @@ app
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
-          label: 'Observer',
+          label: CLIENT_NAME,
           submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
         },
         { role: 'editMenu' },
@@ -372,6 +379,21 @@ app
         return screenshotDir;
       },
     );
+    ipcMain.handle('observer:choose-screenshot-directory', async (event) => {
+      checkSender(event);
+      const owner = BrowserWindow.fromWebContents(event.sender);
+      if (!owner) throw new Error('客户端窗口已关闭。');
+      const { screenshotDir } = await readLocalLocations(configPath);
+      const result = await dialog.showOpenDialog(owner, {
+        title: '选择截图保存目录',
+        buttonLabel: '选择文件夹',
+        defaultPath: screenshotDir,
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return ScreenshotDirectoryChoiceSchema.parse(
+        result.canceled ? null : (result.filePaths[0] ?? null),
+      );
+    });
     ipcMain.handle('observer:backgrounds', (event) => {
       checkSender(event);
       return BackgroundsReplySchema.parse({
@@ -509,8 +531,6 @@ app
       const action = CaptureActionSchema.parse(raw);
       if (action === 'stop' || action === 'disable-analysis')
         taskTimeline.suspend();
-      if (action === 'start' || action === 'enable-analysis')
-        taskTimeline.permit();
       switch (action) {
         case 'start':
           return RuntimeSnapshotSchema.parse(await capture.start());

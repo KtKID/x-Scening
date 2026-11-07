@@ -23,6 +23,27 @@ KNOWN_DIAGNOSTICS=('MISSING_CREDENTIAL','INVALID_CREDENTIAL','ZCODE_CLI_MISSING'
                    'ZCODE_MODEL_REGISTRATION_FAILED','ZCODE_MODEL_CONNECTION_FAILED','ZCODE_PROBE_TIMEOUT',
                    '读取范围限于本轮 inputFile','ENOENT')
 
+
+class KMHCallError(RuntimeError):
+    """模型调用失败，仅携带可展示的原因和稳定诊断码。"""
+    def __init__(self, exit_code, diagnostic):
+        rate_limit = next((line for line in diagnostic.splitlines()
+                           if line.startswith('dsh: RATE_LIMIT:')), '')
+        if '(2056)' in rate_limit and 'Token Plan' in rate_limit:
+            self.code = 'MINIMAX_TOKEN_PLAN_LIMIT'
+            reason = 'MiniMax Token Plan 用量已达上限（2056）'
+        elif rate_limit:
+            self.code = 'RATE_LIMIT'
+            reason = '模型服务暂时限流'
+        else:
+            self.code = next((item for item in KNOWN_DIAGNOSTICS if item in diagnostic), None)
+            reason = self.code
+        self.reason = reason or '模型调用失败，请查看采集日志'
+        self.exit_code = exit_code
+        detail = f'（{reason}）' if reason else ''
+        super().__init__(f'KMH调用失败{detail}，退出码{exit_code}')
+
+
 class KMHInterpreter:
     """负责外部进程、超时与模型正文，活动字段由调用方构造。"""
     def __init__(self,home,timeout=None,command=None,config=None,cancel_event=None,full_diagnostics=False):
@@ -187,11 +208,7 @@ class KMHInterpreter:
                 errors.seek(0,os.SEEK_END)
                 errors.seek(max(0,errors.tell()-DIAGNOSTIC_TAIL_BYTES))
                 diagnostic=errors.read().decode('utf-8',errors='replace')
-                code=next((item for item in KNOWN_DIAGNOSTICS if item in diagnostic),None)
-                detail=f'（{code}）' if code else ''
-                error=RuntimeError(f'KMH调用失败{detail}，退出码{process.returncode}')
-                error.exit_code=process.returncode
-                error.code=code
+                error=KMHCallError(process.returncode,diagnostic)
                 if self.full_diagnostics:
                     errors.seek(0)
                     full=errors.read().decode('utf-8',errors='replace')

@@ -66,10 +66,13 @@ export class ModelSettingsService {
     private readonly configPath: string,
   ) {}
 
-  private async context() {
-    const { config } = await this.settings.read();
+  private async context(dataHome?: string) {
     const home = path.join(
-      resolveConfiguredPath(this.configPath, config.home),
+      dataHome ??
+        resolveConfiguredPath(
+          this.configPath,
+          (await this.settings.read()).config.home,
+        ),
       'kmh',
     );
     const catalog = ModelCatalogSchema.parse(
@@ -119,8 +122,8 @@ export class ModelSettingsService {
     };
   }
 
-  async read(): Promise<ModelSettings> {
-    const context = await this.context();
+  async read(dataHome?: string): Promise<ModelSettings> {
+    const context = await this.context(dataHome);
     const { catalog, providers, selected, env } = context;
     return ModelSettingsSchema.parse({
       catalog: catalog.catalog,
@@ -157,6 +160,25 @@ export class ModelSettingsService {
         ];
       }),
     });
+  }
+
+  /** 采集启动和开启分析前复用模型设置的凭据状态，仅检查本地配置。 */
+  async requireImageModel(dataHome?: string): Promise<void> {
+    await this.pending;
+    const { selected, saved } = await this.read(dataHome);
+    const provider = saved.find(
+      (entry) => entry.provider === selected?.provider,
+    );
+    if (
+      !provider ||
+      provider.credential === 'missing' ||
+      !provider.models.some(
+        (model) => model.id === selected?.model && model.image,
+      )
+    )
+      throw new Error(
+        '图片分析模型还没配置。请在「设置 → 模型」选择支持图片的模型并保存 API 密钥。',
+      );
   }
 
   private serialize(
@@ -262,13 +284,19 @@ export class ModelSettingsService {
           if (!names.some((name) => context.env[name] || process.env[name]))
             delete context.providers[id];
         }
-      context.selected = {
-        provider: request.provider,
-        model: request.model,
-        ...(request.reasoningEffort
-          ? { reasoningEffort: request.reasoningEffort }
-          : {}),
-      };
+      if (
+        !context.selected ||
+        context.selected.provider === request.provider ||
+        !Object.hasOwn(context.providers, context.selected.provider)
+      ) {
+        context.selected = {
+          provider: request.provider,
+          model: request.model,
+          ...(request.reasoningEffort
+            ? { reasoningEffort: request.reasoningEffort }
+            : {}),
+        };
+      }
       try {
         return await this.commit(context);
       } catch (error: unknown) {

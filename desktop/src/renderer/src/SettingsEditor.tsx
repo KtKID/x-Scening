@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RotateCcw, Save } from 'lucide-react';
+import { FolderOpen, RotateCcw, Save } from 'lucide-react';
 import {
   EditableConfigSchema,
   TaskTypePresetsSchema,
@@ -35,6 +35,7 @@ export function SettingsEditor({
   const [items, setItems] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
+  const [choosingDirectory, setChoosingDirectory] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -63,6 +64,7 @@ export function SettingsEditor({
   }, [bridge, reload]);
 
   const saving = save.status === 'saving';
+  const busy = saving || choosingDirectory;
   const changed =
     load.status === 'ready' &&
     (Object.entries(settingsDraft(load.snapshot.config)).some(
@@ -95,8 +97,25 @@ export function SettingsEditor({
     setName('');
     setSave({ status: 'idle' });
   };
+  const chooseDirectory = async (): Promise<void> => {
+    setChoosingDirectory(true);
+    try {
+      const directory = await bridge.chooseScreenshotDirectory();
+      if (directory !== null) {
+        setDraft((previous) => ({ ...previous, screenshotDir: directory }));
+        setSave({ status: 'idle' });
+      }
+    } catch (error) {
+      setSave({
+        status: 'error',
+        message: error instanceof Error ? error.message : '文件夹选择失败。',
+      });
+    } finally {
+      setChoosingDirectory(false);
+    }
+  };
   const persist = async (): Promise<void> => {
-    if (load.status !== 'ready' || saving) return;
+    if (load.status !== 'ready' || busy) return;
     // 保存同时承接尚在输入框中的新类型，避免用户遗漏“添加”。
     const taskTypes = name.length > 0 ? [...items, name.trim()] : items;
     const parsed = EditableConfigSchema.safeParse(
@@ -159,14 +178,14 @@ export function SettingsEditor({
         <div className="settings-actions">
           <button
             className="settings-clear"
-            disabled={saving || !changed}
+            disabled={busy || !changed}
             onClick={clear}
           >
             <RotateCcw size={14} /> 清除修改
           </button>
           <button
             className="preset-save-button"
-            disabled={saving || !changed}
+            disabled={busy || !changed}
             onClick={() => {
               persist().catch(console.error);
             }}
@@ -177,7 +196,7 @@ export function SettingsEditor({
         </div>
       </div>
       <p className="muted settings-apply-note">
-        保存后，采集参数在下次开始采集时读取；每日总结时间立即重新安排，篇幅在下次生成时读取。
+        截图保存目录从下一张截图开始生效。其他采集参数在下次开始采集时读取。每日总结时间立即重新安排，篇幅在下次生成时读取。
       </p>
       {load.status === 'loading' && <p role="status">正在读取配置…</p>}
       {load.status === 'error' && <p role="alert">{load.message}</p>}
@@ -188,7 +207,7 @@ export function SettingsEditor({
       )}
       {save.status === 'saved' && (
         <p className="settings-feedback" role="status">
-          设置已保存。每日总结时间立即生效，采集参数下次开始时生效。
+          设置已保存。截图保存目录从下一张截图开始生效。
         </p>
       )}
       {(load.status === 'error' || save.status === 'error') && (
@@ -212,7 +231,9 @@ export function SettingsEditor({
               <details
                 className="settings-group"
                 key={group.title}
-                open={index === 0 ? true : undefined}
+                open={
+                  index === 0 || group.title === '截图存储' ? true : undefined
+                }
               >
                 <summary>
                   {group.title}
@@ -221,13 +242,21 @@ export function SettingsEditor({
                 <p className="muted">{group.description}</p>
                 <div className="settings-fields">
                   {group.fields.map(([key, label, help]) => (
-                    <label className="settings-field" key={key}>
-                      <span>{label}</span>
+                    <div
+                      className={
+                        key === 'screenshotDir'
+                          ? 'settings-field settings-directory-field'
+                          : 'settings-field'
+                      }
+                      key={key}
+                    >
+                      <label htmlFor={`setting-${key}`}>{label}</label>
                       {[
                         'privacy.sensitiveApps',
                         'privacy.appKeywords',
                       ].includes(key) ? (
                         <textarea
+                          id={`setting-${key}`}
                           aria-label={label}
                           aria-describedby={`hint-${key}`}
                           data-setting={key}
@@ -243,6 +272,7 @@ export function SettingsEditor({
                         />
                       ) : (
                         <input
+                          id={`setting-${key}`}
                           aria-label={label}
                           aria-describedby={`hint-${key}`}
                           data-setting={key}
@@ -271,7 +301,10 @@ export function SettingsEditor({
                           }
                           checked={draft[key] === 'true'}
                           value={draft[key] ?? ''}
-                          disabled={saving}
+                          disabled={
+                            saving ||
+                            (key === 'screenshotDir' && choosingDirectory)
+                          }
                           onChange={(event) => {
                             setDraft((previous) => ({
                               ...previous,
@@ -284,8 +317,20 @@ export function SettingsEditor({
                           }}
                         />
                       )}
+                      {key === 'screenshotDir' && (
+                        <button
+                          className="settings-clear"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            chooseDirectory().catch(console.error);
+                          }}
+                        >
+                          <FolderOpen size={14} /> 选择文件夹
+                        </button>
+                      )}
                       <small id={`hint-${key}`}>{help}</small>
-                    </label>
+                    </div>
                   ))}
                 </div>
               </details>

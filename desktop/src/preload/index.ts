@@ -21,6 +21,7 @@ import {
   BackfillQuerySchema,
   BackfillActionSchema,
   ScreenshotDirectoryActionSchema,
+  ScreenshotDirectoryChoiceSchema,
   ScreenshotDirectorySchema,
   BackgroundsReplySchema,
 } from '../shared/protocol';
@@ -145,6 +146,12 @@ const bridge: ObserverBridge = {
       ScreenshotDirectoryActionSchema.parse(action),
     );
     return ScreenshotDirectorySchema.parse(raw);
+  },
+  chooseScreenshotDirectory: async () => {
+    const raw: unknown = await ipcRenderer.invoke(
+      'observer:choose-screenshot-directory',
+    );
+    return ScreenshotDirectoryChoiceSchema.parse(raw);
   },
   readBackgrounds: async () => {
     const raw: unknown = await ipcRenderer.invoke('observer:backgrounds');

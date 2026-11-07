@@ -47,8 +47,8 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 
 ## 已实现功能
 
-- 模型设置：已保存供应商卡片、编辑/删除、当前模型和思考等级；第三方目录和自定义API两种表单，API密钥默认遮挡，编辑留空保留。目录与能力由KMH生成，页面仅接收凭据状态。保存后下一次模型调用读取最新配置。
-- 模型表单控件：六处下拉入口复用ModelSelect封装的原生下拉框，16px图标、10px图标盒边距、38px文字预留；下箭头与密钥眼睛图标中心距右侧18px、垂直居中，禁用态弱化。
+- 模型设置：在「分析配置」选已登记的供应商、图片模型和思考等级，再点「应用到分析」。下一次截图分析或总结读取该选择。登记其他供应商时保留当前配置。第三方目录和自定义 API 共用密钥维护，编辑时留空沿用已有密钥，页面只接收凭据状态。
+- 模型表单控件：分析配置采用应用内样式的下拉菜单，供应商登记字段沿用现有表单控件，统一边框、箭头与禁用状态。
 
 - 整理页采用“本地截图 → 补分析 → 任务关联”流水线布局，宽窗口横向排列、窄窗口纵向排列；按钮与进度条沿用棕色。保存增量与关联结果变化触发一次流动，动画结束即清理光点，减弱动态偏好保留静态状态；关联节点明确显示其时间线/实际执行日期。后台调度与单操作按钮沿用现有行为，见[流水线布局task](../docs/spec/screenshot-analysis-backfill/tasks/task-backfill-pipeline.md)。
 
@@ -57,7 +57,7 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 - 主导航“补分析”：独立页面选择日期，显示本地截图总数、已分析与待分析数量，一个按钮开始/停止/继续补分析。默认昨天，支持今天和历史日期，未来日期禁用；读取正式报告frames判定“全部已分析”，空日期单列。查看与切换日期保持零模型调用，切换页面后台继续，退出取消自有工作并保留成功结果。开启实时分析会先从当天最早未分析图补起，积压后处理新图；两个入口共用日锁协调，设计与验证见[当天队列task](../docs/spec/screenshot-analysis-backfill/tasks/task-today-analysis-queue.md)。
 - 应用来源统一为Python系统采集：卡片和详情按`frames[].app`首次出现顺序去重，旧单图沿用顶层`app`；多应用活动可分别匹配每个应用筛选，应用分布按每条涉及该应用的活动计一次。未知身份单列为“未知应用”，使用应用数统计已识别名称。模型`observation.app_tags`保留原始结果，展示与统计消费采集身份；周期总结采用相同口径。实现及应用切换、真实双屏与窗口验证见[系统应用身份任务](../docs/spec/screen-observer-p0/tasks/task-system-app-identity.md)。
 - 设置 → 运行配置：完整编辑当前个人配置的运行参数和任务类型。分析与截图频率优先展示，其他参数按分析与总结、存储与模型、分析拼图、屏幕与截图策略、键鼠与画面选取、超时与进程控制分组；每项有中文用途和单位说明。
-- 设置中的“保存”统一写入本次配置草稿，保留 YAML 中文注释及文件权限；数值、路径、时间、任务类型和拼图几何条件通过现有 Python 权威模型校验。文件被外部修改、无效输入或写入失败时提示原因并保留草稿。“清除修改”恢复最近成功读取或保存的值，同时清空新类型输入；客户端内切换页面保留草稿。采集参数下次开始采集读取，每日回顾字数下次生成读取，桌面刷新周期随下一轮状态读取更新。实现与验证见[完整设置 task](../docs/spec/screen-observer-p0/tasks/task-settings.md)。
+- 设置中的“保存”统一写入本次配置草稿，保留 YAML 中文注释及文件权限；数值、路径、时间、任务类型和拼图几何条件通过现有 Python 权威模型校验。文件被外部修改、无效输入或写入失败时提示原因并保留草稿。“清除修改”恢复最近成功读取或保存的值，同时清空新类型输入；客户端内切换页面保留草稿。「截图存储」可直接编辑路径，也可通过「选择文件夹」打开系统窗口并填入草稿。点击「保存」后，下一张截图起使用新路径。原始 JPEG、采集旁文件与日索引一起保存，旧截图保留原位置，日志、活动、总结和分析拼图沿用各自的目录。其他采集参数下次开始采集读取，每日回顾字数下次生成读取，桌面刷新周期随下一轮状态读取更新。实现与验证见[完整设置 task](../docs/spec/screen-observer-p0/tasks/task-settings.md)。
 - 设置 → 预设 → 任务类型：增删类型后使用统一的“保存”按钮，默认工作、学习、娱乐、游戏。活动卡片和详情按 `observation.task_types` 显示全部已选类型，多项和长名称自动换行；空列表与旧记录显示“待分类”，历史自定义名称继续保留。展示与真实窗口验证见[卡片类型任务](../docs/spec/screen-observer-p0/tasks/task-task-type-cards.md)。
 - 三栏：侧边导航、每日时间线、右侧概览。卡片选中切换活动详情，关闭按钮或 Escape 返回概览。
 - 日期前后切换、日历、今天、应用筛选、手动刷新；同小时的密集活动顺序排列，单时间点活动保持可读。
@@ -94,6 +94,8 @@ Windows PowerShell 提供等价的项目内环境入口：`desktop/scripts/run.p
 本地`npm run build`使用`dev`模式；GitHub Actions的Release事件或tag构建自动使用`publish`模式。模式随客户端编译产物保存，dev 首次启动使用 [公开默认值](../observer.yaml) 和 [开发目录模板](../observer.defaults_dev.yaml) 生成项目根目录的 `observer_dev.yaml`，之后直接读取这份由 Git 忽略的个人配置。默认 home 为 `./home`，截图目录为 `./data/snapshot-v1`。手动验证发布构建可执行`npm run build:publish`。
 
 publish首次启动在`~/.scening/observer.yaml`保存用户配置，默认活动、总结和KMH数据归`~/.scening`，正式截图归`~/.scening/snapshots`，桌面缓存归`~/.scening/desktop/.cache`，日志归`~/.scening/logs`。已有用户配置原文保留，`OBSERVER_CONFIG`可显式选择另一份配置。`~`由Python与桌面统一展开为当前用户主目录。
+
+开启分析时，点击「开始截屏」会先检查当前图片模型和 API 密钥。缺少配置时，界面提示前往「设置 → 模型」，采集保持停止。仅截屏模式可直接保存截图。
 
 发布构建仅读取 [公开模板 observer.yaml](../observer.yaml)。首次创建用户配置时保留中文注释。publish 安装包包含独立 Python、感知模块、Node 和基于 DeepSeek Harness 插件打包的 Agent 运行时。应用从自身资源定位运行环境。首次运行时按提示授予系统权限，需要分析时在“设置 → 模型”填写 API 密钥。包内运行环境和 ZIP 校验见 [GitHub Release](#github-release)。实施、真实测试和远程构建边界见[发布模式任务](../docs/spec/screen-observer-p0/tasks/task-publish-mode.md)。
 
@@ -241,9 +243,9 @@ Python默认凑满三份候选后分析一张时间标签拼图，客户端卡�
 
 推送三段版本标签（例如`v0.2.0`）会触发`.github/workflows/release.yml`，在macOS arm64环境检查代码并明确调用`build:publish`。标签须与`desktop/package.json`版本一致；Release准备版本遵循中段加1、末段归零。
 
-流程读取实际应用包中的主进程、版本和构建标记，核对publish模式、arm64架构及产品图标，并实际启动包内Python与KMH；ZIP生成后重新解压再启动核验，再上传ZIP、JSON清单和SHA256SUMS。核对全部通过后创建Release；相同标签重试更新对应附件。工作流使用当前仓库GITHUB_TOKEN，发布job单独声明contents:write。
+publish 构建在写入包内构建标记后为完整应用及嵌套组件做临时签名。应用包、显示名和主程序统一为 `x-scening`。流程读取实际包内的主进程、版本和构建标记，核对 publish 模式、名称、arm64 架构、图标及整包递归严格验签，并启动包内 Python 与 KMH。ZIP 解压后执行同样的核验，再上传 ZIP、JSON 清单和 SHA256SUMS。核对通过后创建 Release，相同标签重试更新对应附件。工作流使用当前仓库 GITHUB_TOKEN，发布 job 单独声明 contents:write。
 
-Actions里的“Run workflow”要求填写候选标签，`publish_release`默认false，仅构建并保留候选附件；正式手动发布需选择true并使用已有标签。本地`npm run build`继续默认dev；发布包内置独立Python、scening源码及截图/OCR依赖，KMH快照在构建时解压并连同Node进入应用Resources；应用从自身资源启动，用户填写自己的模型API密钥。`OBSERVER_PROJECT_ROOT`用于开发模式。当前流程沿用现有Apple签名配置，产物为macOS Apple Silicon客户端ZIP。
+Actions里的“Run workflow”要求填写候选标签，`publish_release`默认false，仅构建并保留候选附件；正式手动发布需选择true并使用已有标签。本地`npm run build`继续默认dev；发布包内置独立Python、scening源码及截图/OCR依赖，KMH快照在构建时解压并连同Node进入应用Resources；应用从自身资源启动，用户填写自己的模型API密钥。`OBSERVER_PROJECT_ROOT`用于开发模式。产物为 macOS Apple Silicon 客户端 ZIP，跨版本授权继承需使用稳定的 Developer ID 签名并单独验证。
 
 ```sh
 git push origin main

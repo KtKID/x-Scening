@@ -8,7 +8,7 @@ import sys
 import time
 import threading
 from scening.observer_config import load_config
-from scening.runtime_control import RuntimeControl
+from scening.runtime_control import AnalysisIssue, RuntimeControl
 from scening import runtime_logging
 
 # 沿用真实启动配置的位置解析，支持保存新home后重启的控制验证。
@@ -53,6 +53,9 @@ class Model:
 model = Model()
 with RuntimeControl(home, '--capture-only' not in sys.argv, settings.control, done) as control:
     control.interpreter = model
+    issue_fixture = home / 'analysis-issue.json'
+    if issue_fixture.is_file():
+        control.set_analysis_issue(0, AnalysisIssue.model_validate_json(issue_fixture.read_bytes()))
     (home / 'launch-args.json').write_text(json.dumps(sys.argv))
     with (home / 'launched-pids').open('a') as stream:
         stream.write(str(os.getpid()) + '\n')

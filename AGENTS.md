@@ -14,11 +14,11 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 
 ## 设计
 
-当前实时采集采用 Python / MSS 多屏缓存、pynput 键鼠事件、画面差异选图和 Pillow 原分辨率 JPEG；系统空闲和休眠状态由 Quartz 提供。当前采集统一使用原分辨率 JPEG；旧单帧和离线缩图入口已按用户要求移除，历史图片与记录保留。来源、模块和用法见 [scening 实现](src/scening/README.md)。
+当前实时采集采用 Python / ScreenCaptureKit 多屏缓存、pynput 键鼠事件、画面差异选图和 Pillow 原分辨率 JPEG。每块屏幕复用一条 `SCStream` 并只保留最新帧，系统空闲和休眠时停流。当前采集统一使用原分辨率 JPEG；旧单帧和离线缩图入口已按用户要求移除，历史图片与记录保留。来源、模块和用法见 [scening 实现](src/scening/README.md)。
 
 | 决策 | 作用 |
 | --- | --- |
-| Python / MSS / pynput | 缓存各屏最新帧，根据键鼠坐标与近期活动选屏；应用按系统窗口层级、目标屏矩形与窗口PID读取，异常或切换竞态记未知。 |
+| Python / ScreenCaptureKit / pynput | 每屏复用采集流，根据键鼠坐标与近期活动选屏；应用按系统窗口层级、目标屏矩形与窗口 PID 读取，异常或切换竞态记未知。 |
 | Python / Pillow | 实时选图用 RGB 平方差，正式候选保持原分辨率 JPEG；后续活动入口沿用平均 RGB 差去重，正式候选保持原采集像素。 |
 | KMH scening | 图片交由 KMH 专用 profile，通过read_image与submit_observation提交结构化结果，默认 minimax-cn / MiniMax-M3 / high；API 密钥在客户端“设置 → 模型”中配置。 |
 | 隐私闸门 | 候选发布与补分析提交前复用同一本地判定（L0应用黑名单 + Vision OCR fast 规则）。实时事件与定时图暂存内存JPEG，选中后以内存OCR检查，通过再保存，敏感帧释放内存；自动积压与手动补分析确认敏感后删除原图和采集信息、重建索引，OCR失败保留待重试；规则与验证见[敏感判定规则](docs/design/screenshot-sensitive-rules-20261101.md)。 |
@@ -59,6 +59,12 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 15. 所有可调数值统一维护于 observer.yaml，包括 scening 与 analysis 策略块；默认值只在 YAML 提供，Pydantic 校验启动快照。采集频率与下游 sampleIntervalSeconds 分别配置，算法/文件格式常量按语义保留。
 16. 文档、示例与对外分享的日志片段使用项目相对路径，外部位置使用 `<kmh-repo>`、`<observer-home>`、`<user-home>` 等占位符；账号、密钥与授权链接使用脱敏值。运行时文件定位和本地凭据由原有配置管理。
 
+### 2026-11-06 `replayd` 内存事故
+
+- **现象与触发点**　macOS 15.6 上，旧 MSS 后端逐屏逐帧调用 `CGWindowListCreateImage`，触发 `replayd` 的截屏审批路径。隔离对照中，32×32 测试图立即释放后，每次单张抓屏仍净增约 650 个在用堆分配。新版单张接口也复现快速增长。日用采集停止后，旧系统进程仍保留约 8.7 GiB 内存足迹。
+- **修复与恢复**　v0.2.19 dev 每屏复用一个 `SCStream`，只保留最新帧。空闲、休眠、布局变化和退出时停流。旧占用按一次性事故处理，先正常停采，再经用户授权重启 `replayd`。应用运行流程使用 macOS 管理的系统服务。
+- **实测与验收要求**　同一新进程空闲约 6.2 MiB，双屏 2560×1440 以目标 5 帧/秒采集 150 秒时维持 7.2–7.3 MiB，停流 20 秒后约 7.2 MiB。此类修复同时记录干净基线、采集中的绝对内存与增长速度、停流后的内存。双屏 30 分钟和完整分析的长期稳态单列验证。[采集实现](src/scening/capture.py) · [本地验收记录](reports/fix/scstream-20261106/test-report.md)
+
 ## 开发路线
 
 | 阶段 | 目标 |
@@ -82,7 +88,7 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 
 ## 协作与表达
 
-- 桌面版本按三段整数递增：**每次打包发布前必须更新版本号**，普通打包及普通Git提交末段加1；Release准备中段加1且末段归零。重复打包同样升版；同一批修改在打包前已升版时，随后提交沿用本批版本。通过`npm version patch/minor --no-git-tag-version`同时更新`desktop/package.json`与锁文件；打包完成后核对源版本、包内版本和成功标记一致，更新提示分别显示当前版本与新版本。提交与发布按用户授权执行。
+- 桌面打包和升版遵循[桌面客户端打包规范](docs/development/client-build.md)。本机每次打包升修订号。默认沿用 Electron 自带的签名并复核主程序指纹，用户授权时可显式指定 Apple Development 证书。准备 GitHub Release 升次版本并将修订号归零。更新提示分别显示当前版本与新版本。提交与发布按用户授权执行。
 - 本机客户端通过统一build入口完成编译、打包并发布至固定应用位置后，运行中的客户端每60秒检查应用与成功标记，提供“重启并更新”以安全收尾并自动切换；macOS Apple Silicon固定入口为desktop/release/mac-arm64/x-scening.app，更新时保持入口身份；实现与验证见[本机构建检测task](docs/spec/screen-observer-p0/tasks/task-local-client-build.md)和[一键更新task](docs/spec/screen-observer-p0/tasks/task-local-client-restart.md)。
 
 - 回答先给结论，直接、具体，深度与问题复杂度相称。
@@ -137,4 +143,4 @@ x-scening — macOS 原生的被动式屏幕感知系统，通过低成本视觉
 
 - [每日自动总结实施报告](docs/spec/daily-review-automation/tasks/task-daily-review-automation/dev-report.md)：设置时间默认03:00，按报告日期独立生成与保存状态；部分分析补总结、三次自动预算、完整错误、居中总结和次日首次展示已实现，执行范围与证据见报告。
 
-- GitHub Release工作流为`.github/workflows/release.yml`，推送v三段版本标签后以publish打包macOS arm64客户端。CI版本固定采用源码和标签的一致版本，同标签重试复用版本；本地人工打包继续按原规则升版。手动工作流默认只验证，正式发布需显式选择。上传前须核验实际包中的模式、版本、构建标记、图标与架构，并完成ZIP解压回读及SHA256核对。
+- GitHub Release 工作流为 `.github/workflows/release.yml`，推送三段版本标签后以 publish 打包 macOS arm64 客户端。手动工作流默认只验证，正式发布需显式选择。上传前须核验实际包中的模式、版本、构建标记、图标与架构，并完成 ZIP 解压回读及 SHA-256 核对。

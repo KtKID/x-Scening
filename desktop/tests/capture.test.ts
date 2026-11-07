@@ -175,6 +175,45 @@ await test('顶部保留保存信息与待拼图数量，完整路径留在原�
   });
 });
 
+await test('缺模型时拦截完整启动及切换分析，设置就绪后复用仅截图进程', async () => {
+  await fixture(async (root) => {
+    let configured = false;
+    const control = new CaptureController(
+      root,
+      undefined,
+      undefined,
+      (home) => {
+        assert.equal(home, path.join(root, 'home'));
+        return configured
+          ? Promise.resolve()
+          : Promise.reject(new Error('请在「设置 → 模型」配置图片分析模型'));
+      },
+    );
+    try {
+      const denied = await control.start();
+      assert.equal(denied.capture.state, 'error');
+      assert.match(denied.capture.message, /设置 → 模型/);
+      assert.deepEqual((await control.read()).capture, denied.capture);
+      await assert.rejects(readFile(path.join(root, 'home/launch-args.json')));
+
+      await control.setAnalysisEnabled(false);
+      const only = await control.start();
+      assert.ok('pid' in only.capture);
+      await untilReady(control);
+      await assert.rejects(control.setAnalysisEnabled(true), /设置 → 模型/);
+      assert.equal((await control.read()).analysisEnabled, false);
+
+      configured = true;
+      const enabled = await control.setAnalysisEnabled(true);
+      assert.ok('pid' in enabled.capture);
+      assert.equal(enabled.capture.pid, only.capture.pid);
+      assert.equal(enabled.capture.mode, 'full');
+    } finally {
+      await control.shutdown();
+    }
+  });
+});
+
 await test('C8 停止时选择仅截图，真实启动参数生效且相同选择保持PID', async () => {
   await fixture(async (root) => {
     const control = new CaptureController(root);
@@ -391,9 +430,18 @@ await test('C11 切换模式期间退出，等待最终受管进程完成回收'
 });
 await test('C2 同目录独立采集识别、复用、显式停止；无关进程保持', async () => {
   await fixture(async (root) => {
+    const issue = {
+      state: 'paused',
+      reason: 'MiniMax Token Plan 用量已达上限（2056）',
+    };
+    await mkdir(path.join(root, 'home'), { recursive: true });
+    await writeFile(
+      path.join(root, 'home/analysis-issue.json'),
+      JSON.stringify(issue),
+    );
     const child = spawn(
       path.join(root, '.venv/bin/python'),
-      ['-B', '-m', 'scening.observe_activity', '--capture-only'],
+      ['-B', '-m', 'scening.observe_activity'],
       {
         cwd: root,
         env: { ...process.env, PYTHONPATH: path.join(root, 'src') },
@@ -406,7 +454,8 @@ await test('C2 同目录独立采集识别、复用、显式停止；无关进�
       assert.ok('pid' in current);
       assert.equal(current.pid, child.pid);
       assert.equal(current.origin, 'external');
-      assert.equal(current.mode, 'capture-only');
+      assert.equal(current.mode, 'full');
+      assert.deepEqual(current.analysisIssue, issue);
       await control.shutdown();
       assert.equal(child.exitCode, null);
       const again = (await control.start()).capture;

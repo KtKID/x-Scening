@@ -1,9 +1,10 @@
 """截图目录专项：真实配置、保存、选图和记录，桌面/模型只在边界替换。"""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +44,87 @@ class SnapshotPathTests(unittest.TestCase):
     def write(self):
         self.path.write_text(yaml.safe_dump(self.values, allow_unicode=True), encoding='utf-8')
 
+    def test_live_switch_keeps_capture_analysis_and_log_destinations_consistent(self):
+        """同一次采集中切换目录，实际 JPEG、索引、活动、总结和日志各自落盘。"""
+        target = self.root / 'TMP' / 'new-pictures'
+        log = images.LOG_PATH
+        wall_start = datetime.now().astimezone()
+        day = wall_start.date().isoformat()
+        backend = Backend()
+        observed = {}
+        self.values['sampleIntervalSeconds'] = 1.05
+        self.values['scening']['captureFps'] = 10
+        self.values['scening']['observationIntervalSeconds'] = 1
+        self.values['privacy']['enabled'] = False
+        self.write()
+
+        def wait_for_index(root, count):
+            deadline = time.monotonic() + 5
+            index = root / day / 'index.json'
+            while time.monotonic() < deadline:
+                if index.exists():
+                    items = json.loads(index.read_text())['images']
+                    if len(items) >= count:
+                        return [root / item['file'] for item in items]
+                time.sleep(.025)
+            self.fail('等待正式截图索引超时：' + str(index))
+
+        class Model:
+            def analyze(model, image, frames=None):
+                if not observed:
+                    # 模型执行期间额外产生旧目录候选，稍后由同一消费者处理。
+                    old_files = wait_for_index(self.snapshots, 4)
+                    observed['old'] = {item: item.read_bytes() for image in old_files
+                                       for item in (image, image.with_suffix('.jpg.metadata.json'))}
+                    observed['log'] = log.read_bytes()
+                    backend.colors[1] = 'green'
+                    self.values['screenshotDir'] = './TMP/new-pictures'
+                    self.values['home'] = './next-start-only'
+                    updated = self.path.with_suffix('.tmp')
+                    updated.write_text(yaml.safe_dump(self.values), encoding='utf-8')
+                    updated.replace(self.path)
+                    wait_for_index(target, 1)
+                return '已分析测试截图。'
+
+            def summarize(model, path):
+                return '已总结测试活动。'
+
+        def collector(config, **kwargs):
+            return SensingCollector(config, backend=backend,
+                                    app_provider=lambda *_: ('Editor', 'editor'))
+
+        with patch.object(activity, 'SensingCollector', collector), \
+             patch.object(activity, 'KMHInterpreter', return_value=Model()), \
+             patch.object(screen, 'screen_capture_allowed', return_value=True):
+            result = activity.main(['--config', str(self.path), '--count', '9',
+                                    '--summary-on-exit'])
+        self.assertEqual(result, 0)
+        self.assertTrue(observed['old'])
+        self.assertTrue(log.read_bytes().startswith(observed['log']))
+        self.assertGreater(len(log.read_bytes()), len(observed['log']))
+        events = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertFalse(any(event['result'] == 'metadata_failed'
+                             or (event['stage'], event['result']) == ('capture_metadata', 'failed')
+                             for event in events))
+        self.assertFalse((self.root / 'next-start-only').exists())
+        for image, content in observed['old'].items():
+            self.assertEqual(image.read_bytes(), content)
+        for root in (self.snapshots, target):
+            index = json.loads((root / day / 'index.json').read_text())
+            self.assertTrue(any(item['analyzed'] for item in index['images']))
+            for item in index['images']:
+                image = root / item['file']
+                self.assertTrue(image.is_file())
+                metadata = json.loads(image.with_suffix('.jpg.metadata.json').read_text())
+                self.assertEqual(metadata['file'], item['file'])
+        rows = json.loads((self.home / 'records' / f'{day}.json').read_text())
+        self.assertEqual(len(rows), 2)
+        for row, root in zip(rows, (self.snapshots, target)):
+            self.assertTrue((self.home / row['screenshot']).is_relative_to(self.home / 'analysis'))
+            self.assertTrue(all(Path(frame['screenshot']).is_relative_to(root) for frame in row['frames']))
+        self.assertTrue((self.home / 'summaries' / f'{day}.json').is_file())
+        self.assertFalse(list(target.rglob('*.log')))
+
     def test_s01_default_relative_absolute_and_activity_cli_override(self):
         """默认路径精确到snapshot-v1；相对/绝对和正式CLI覆盖独立于home。"""
         self.assertEqual(load_config().screenshotDir, self.project / 'data/snapshot-v1')
@@ -50,13 +132,55 @@ class SnapshotPathTests(unittest.TestCase):
         self.assertEqual(config.screenshotDir, self.snapshots)
         self.assertEqual(config.with_overrides(home=self.root / 'other-home').screenshotDir, self.snapshots)
         before = self.path.read_bytes()
+        with patch.object(activity, 'DEV_CONFIG_PATH', self.path), \
+             patch('scening.observer_config.DEV_CONFIG_PATH', self.path), \
+             patch.object(activity, 'run_activity', return_value=0) as call:
+            self.assertEqual(activity.main(['--capture-only']), 0)
+            self.assertEqual(call.call_args.kwargs['config_path'], self.path)
         with patch.object(activity, 'run_activity', return_value=0) as call:
             self.assertEqual(activity.main(['--config', str(self.path), '--screenshot-dir', str(self.root/'override')]), 0)
             self.assertEqual(call.call_args.kwargs['config'].screenshotDir, self.root/'override')
+            self.assertIsNone(call.call_args.kwargs['config_path'])
         self.assertEqual(self.path.read_bytes(), before)
         self.values['screenshotDir'] = str(self.root/'absolute')
         self.write()
         self.assertEqual(load_config(self.path).screenshotDir, self.root/'absolute')
+
+    def test_live_invalid_target_recovers_without_writing_to_old_directory(self):
+        """目标是普通文件时本次不保存，修正路径后同一采集器继续发布。"""
+        clock = Clock()
+        self.values['privacy']['enabled'] = False
+        self.write()
+        collector = SensingCollector(load_config(self.path), backend=Backend(),
+                                     clock=clock, wall_clock=clock.wall)
+        self.addCleanup(collector.close)
+        collector.watch_screenshot_directory(self.path)
+        with Image.new('RGB', (10, 10), 'blue') as image:
+            def publish(offset):
+                frame = Frame(image, AT + timedelta(seconds=offset), Backend().screens[0])
+                collector._publish(collector.store.stage(frame), 'periodic')
+
+            publish(0)
+            old = collector.next_candidate(timeout=0).saved.path.parent
+            before = {item.name: item.read_bytes() for item in old.iterdir()}
+            blocked = self.root / 'file'
+            blocked.write_bytes(b'keep')
+            self.values['screenshotDir'] = './file'
+            self.write()
+            with self.assertRaises(OSError):
+                publish(1)
+            self.assertIsNone(collector.next_candidate(timeout=0))
+            self.assertEqual(blocked.read_bytes(), b'keep')
+            self.path.write_text('screenshotDir: [', encoding='utf-8')
+            with self.assertRaisesRegex(OSError, '截图保存目录读取失败'):
+                publish(2)
+            self.values['screenshotDir'] = './TMP/recovered'
+            self.write()
+            publish(3)
+        new = collector.next_candidate(timeout=0).saved.path
+        self.assertEqual(new.parent.parent, self.root / 'TMP/recovered')
+        self.assertTrue((new.parent / 'index.json').is_file())
+        self.assertEqual({item.name: item.read_bytes() for item in old.iterdir()}, before)
 
     def test_s02_real_collector_periodic_action_and_collision_use_exact_directory(self):
         """定时与真实选图JPEG位于独立目录的采集日期子目录，事件临时图清理，重名保留。"""

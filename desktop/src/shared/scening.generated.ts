@@ -319,7 +319,18 @@ export const ObserverConfigSchema = z.strictObject({
 export const ControlRequestSchema = z.strictObject({
   requestId: z.string().min(1),
   pid: z.number().int().gt(0),
-  action: z.enum(['status', 'enable-analysis', 'disable-analysis', 'stop']),
+  action: z.enum([
+    'status',
+    'analysis-status',
+    'enable-analysis',
+    'disable-analysis',
+    'stop',
+  ]),
+});
+
+export const AnalysisIssueSchema = z.strictObject({
+  state: z.enum(['retrying', 'paused']),
+  reason: z.string(),
 });
 
 export const ControlReplySchema = z.strictObject({
@@ -330,6 +341,10 @@ export const ControlReplySchema = z.strictObject({
   epoch: z.number().int().min(0),
   ok: z.boolean(),
   message: z.string(),
+  analysisIssue: z
+    .union([AnalysisIssueSchema, z.null()])
+    .optional()
+    .default(null),
 });
 
 export const DailyReviewReadySchema = z.strictObject({

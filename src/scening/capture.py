@@ -1,6 +1,6 @@
-"""采集边界和帧契约；原生资源仅在采集线程内创建与释放。
+"""采集边界和帧契约；原生采集会话由采集线程持有。
 
-采用 MSS 多屏缓存和 pynput 输入监听。
+采用 ScreenCaptureKit 多屏最新帧和 pynput 输入监听。
 后端可替换，用于双屏回放；键盘内容只表达输入事件，具体按键文本保持在监听边界内。
 """
 from __future__ import annotations
@@ -12,16 +12,19 @@ import time
 
 from PIL import Image
 from scening.permissions import screen_capture_allowed
+from scening.screen_stream import StreamCapture, StreamFailure
 
 
 @dataclass(frozen=True)
 class Display:
-    """MSS 逻辑像素中的一块显示器；位置与尺寸同时作为缓存身份。"""
+    """Quartz 逻辑坐标中的显示器。系统 ID 与像素尺寸参与采集布局判断。"""
     index: int
     left: int
     top: int
     width: int
     height: int
+    system_id: int = 0
+    pixels: Optional[Tuple[int, int]] = None
 
     def contains(self, point: Tuple[float, float]) -> bool:
         """判断输入坐标是否属于本屏，右边界和下边界交给相邻屏。"""
@@ -54,32 +57,89 @@ def display_at(displays, point):
 
 
 class NativeBackend:
-    """MSS、Quartz 与 pynput 的本机边界，实现按需导入及线程内生命周期。"""
+    """ScreenCaptureKit、Quartz 与 pynput 的本机边界。"""
 
-    def __init__(self, shutdown_timeout):
-        self._sct = None
+    def __init__(self, shutdown_timeout, refresh_interval, capture_timeout):
         self._listeners = []
         self._shutdown_timeout = shutdown_timeout
+        self._refresh_interval = refresh_interval
+        self._capture_timeout = capture_timeout
+        self._layout = None
+        self._streams = None
+        self._retiring = None
+        self._allowed = False
+        self._next_permission_check = 0.0
+        self._retry_at = 0.0
+        self._started_at = 0.0
+        self._issue = None
 
     def displays(self):
-        """重新读取屏幕布局；本函数与 grab、close 均由同一采集线程调用。"""
-        import mss
-        if self._sct is not None:
-            self._sct.close()
-        self._sct = mss.mss()
-        return [Display(i, item['left'], item['top'], item['width'], item['height'])
-                for i, item in enumerate(self._sct.monitors[1:], 1)]
+        """读取 Quartz 显示布局。保持旧截图入口的名义像素尺寸与屏幕顺序。"""
+        import Quartz
+        error, ids, _ = Quartz.CGGetActiveDisplayList(32, None, None)
+        if error:
+            raise OSError(f'显示器布局读取失败（{error}）')
+        displays = []
+        for index, display_id in enumerate(ids, 1):
+            bounds = Quartz.CGDisplayBounds(display_id)
+            pixels = (Quartz.CGDisplayPixelsWide(display_id), Quartz.CGDisplayPixelsHigh(display_id))
+            displays.append(Display(index, int(bounds.origin.x), int(bounds.origin.y),
+                                    int(bounds.size.width), int(bounds.size.height), display_id, pixels))
+        return displays
+
+    def prepare_capture(self, displays, fps):
+        """按布局维护一组流。授权按布局检查间隔复核，失败后延迟重试。"""
+        layout = (tuple(displays), fps)
+        if layout != self._layout:
+            self.pause_capture()
+            self._layout = layout
+            self._retry_at = 0.0
+        if self._retiring is not None and self._retiring.reap():
+            self._retiring = None
+        if not displays:
+            return
+        now = time.monotonic()
+        if now >= self._next_permission_check:
+            self._allowed = screen_capture_allowed()
+            if not self._allowed:
+                self.pause_capture()
+            self._next_permission_check = now + self._refresh_interval
+        if self._allowed and self._streams is None and self._retiring is None and now >= self._retry_at:
+            try:
+                self._streams = StreamCapture(displays, fps)
+            except OSError as error:
+                self._issue = str(error)
+                self._retry_at = now + self._refresh_interval
+            else:
+                self._started_at = now
+                self._issue = None
+
+    def pause_capture(self):
+        """立即失效各屏最新帧并请求停流，唤醒后等待旧会话收尾再开流。"""
+        self._next_permission_check = 0.0
+        if self._streams is not None:
+            self._streams.stop()
+            self._retiring, self._streams = self._streams, None
 
     def grab(self, display):
-        """抓取指定逻辑显示器，返回原尺寸 RGB 图片；异常交给采集器记录。"""
-        if not screen_capture_allowed():
+        """读取指定屏最新的观察。无新帧时沿用采集器已持有的最新帧。"""
+        if not self._allowed:
             raise PermissionError('等待屏幕录制授权')
-        shot = self._sct.grab({'left': display.left, 'top': display.top,
-                               'width': display.width, 'height': display.height})
-        return Image.frombytes('RGB', shot.size, shot.rgb)
+        if self._streams is None:
+            if self._issue is not None:
+                raise StreamFailure(self._issue)
+            return None
+        now = time.monotonic()
+        try:
+            return self._streams.take(display, startup_expired=now - self._started_at >= self._capture_timeout)
+        except StreamFailure as error:
+            self._issue = str(error)
+            self._retry_at = now + self._refresh_interval
+            self.pause_capture()
+            raise
 
     def pointer(self):
-        """读取 Quartz 全局指针坐标，与 MSS 在 macOS 中使用的坐标对应。"""
+        """读取与 Quartz 显示布局一致的全局指针坐标。"""
         import Quartz
         point = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
         return float(point.x), float(point.y)
@@ -129,15 +189,19 @@ class NativeBackend:
         return True
 
     def close(self):
-        """先停止监听，再关闭本线程的 MSS；退出等待由采集器统一控制。"""
+        """并行发起停流和停止监听，在同一退出预算内等待两者回收。"""
         deadline = time.monotonic() + self._shutdown_timeout
+        self.pause_capture()
         for listener in self._listeners:
             listener.stop()
-        for listener in self._listeners:
-            listener.join(timeout=max(0, deadline-time.monotonic()))
-            if listener.is_alive():
-                raise RuntimeError('键鼠监听退出超时')
-        self._listeners.clear()
-        if self._sct is not None:
-            self._sct.close()
-            self._sct = None
+        try:
+            for listener in self._listeners:
+                listener.join(timeout=max(0, deadline-time.monotonic()))
+                if listener.is_alive():
+                    raise RuntimeError('键鼠监听退出超时')
+            self._listeners.clear()
+        finally:
+            if self._retiring is not None:
+                if not self._retiring.reap(max(0, deadline-time.monotonic())):
+                    raise RuntimeError('ScreenCaptureKit 停流超时')
+                self._retiring = None

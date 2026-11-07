@@ -29,6 +29,17 @@ export const settingGroups = [
     ],
   },
   {
+    title: '截图存储',
+    description: '相对路径以当前配置文件所在目录为基准。',
+    fields: [
+      [
+        'screenshotDir',
+        '截图保存目录',
+        '保存原始 JPEG、采集信息和日索引。修改后从下一张截图开始使用新目录，旧截图保留在原位置。',
+      ],
+    ],
+  },
+  {
     title: '截图隐私',
     description: '沿用现有本地敏感判定配置；列表每行填写一项。',
     fields: [
@@ -134,7 +145,6 @@ export const settingGroups = [
       '相对路径以当前配置文件所在目录为基准；桌面分析使用内置 KMH scening。',
     fields: [
       ['home', '活动与总结目录', '保存每日记录、总结与 KMH 运行数据。'],
-      ['screenshotDir', '截图保存目录', '保存原始 JPEG 与分析拼图。'],
       [
         'kmhLauncher',
         'KMH 启动脚本',

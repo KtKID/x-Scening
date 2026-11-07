@@ -6,6 +6,7 @@ import {
   ActivitySummarySchema,
   ObserverConfigSchema,
   DesktopConfigSchema,
+  AnalysisIssueSchema,
   DailyReviewSchema,
   type DailyReviewViewSchema,
   DailyReviewPresentedSchema,
@@ -50,6 +51,8 @@ export const QuerySchema = z.strictObject({
 export const BackfillQuerySchema = z.strictObject({ day: DaySchema });
 export const ScreenshotDirectoryActionSchema = z.enum(['read', 'open']);
 export const ScreenshotDirectorySchema = z.string().min(1);
+export const ScreenshotDirectoryChoiceSchema =
+  ScreenshotDirectorySchema.nullable();
 export const BackfillActionSchema = BackfillQuerySchema.extend({
   action: z.enum(['start', 'stop']),
 });
@@ -171,6 +174,7 @@ export const CaptureStateSchema = z.discriminatedUnion('state', [
     origin: z.enum(['client', 'external']),
     mode: CaptureModeSchema,
     message: z.string(),
+    analysisIssue: AnalysisIssueSchema.nullable().optional(),
   }),
 ]);
 export const CaptureActionSchema = z.enum([
@@ -228,6 +232,9 @@ export type ObserverBridge = {
   screenshotDirectory: (
     action: z.infer<typeof ScreenshotDirectoryActionSchema>,
   ) => Promise<z.infer<typeof ScreenshotDirectorySchema>>;
+  chooseScreenshotDirectory: () => Promise<
+    z.infer<typeof ScreenshotDirectoryChoiceSchema>
+  >;
   readSettings: () => Promise<SettingsSnapshot>;
   saveSettings: (settings: SettingsSnapshot) => Promise<SettingsSnapshot>;
   readPresets: () => Promise<PresetSnapshot>;

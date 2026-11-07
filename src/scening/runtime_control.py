@@ -6,7 +6,7 @@ from pathlib import Path
 import socketserver
 import threading
 import time
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from scening import runtime_logging
 
@@ -39,7 +39,14 @@ class ControlRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     requestId: str = Field(min_length=1)
     pid: int = Field(strict=True, gt=0)
-    action: Literal['status', 'enable-analysis', 'disable-analysis', 'stop']
+    action: Literal['status', 'analysis-status', 'enable-analysis', 'disable-analysis', 'stop']
+
+
+class AnalysisIssue(BaseModel):
+    """当前分析段的批次故障。原因使用可直接显示的脱敏文案。"""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    state: Literal['retrying', 'paused']
+    reason: str
 
 
 class ControlReply(BaseModel):
@@ -52,6 +59,7 @@ class ControlReply(BaseModel):
     epoch: int = Field(strict=True, ge=0)
     ok: bool
     message: str
+    analysisIssue: Optional[AnalysisIssue] = None
 
 
 class RuntimeControl:
@@ -68,6 +76,7 @@ class RuntimeControl:
         self.lock = threading.RLock()
         self.enabled = enabled
         self.epoch = 0
+        self.analysis_issue = None
         self.since = datetime.now().astimezone()
         self.cancelled = threading.Event()
         self.changed = threading.Event()
@@ -80,6 +89,12 @@ class RuntimeControl:
         """原子读取当前分析段，调用者用代次核对模型结果及图片采集时间。"""
         with self.lock:
             return self.enabled, self.epoch, self.since, self.cancelled
+
+    def set_analysis_issue(self, epoch, issue):
+        """更新当前代次的分析故障，关闭后丢弃旧段迟到的错误。"""
+        with self.lock:
+            if self.enabled and self.epoch == epoch and not self.stopping.is_set():
+                self.analysis_issue = issue
 
     @contextmanager
     def commit(self, epoch):
@@ -114,8 +129,9 @@ class RuntimeControl:
         """执行并返回完成回执，耗时取消在锁外等待，使停止和状态始终可达。"""
         deadline = time.monotonic() + self.settings.timeoutSeconds
         error = ''
+        read_only = request.action in ('status', 'analysis-status')
         try:
-            if request.action != 'status':
+            if not read_only:
                 runtime_logging.log_event({'stage':'control','result':'received','requestId':request.requestId,
                                            'action':request.action,'pid':os.getpid(),'message':'收到控制请求'})
             if request.pid != os.getpid():
@@ -124,7 +140,7 @@ class RuntimeControl:
             if request.action == 'stop':
                 self.request_stop()
                 model = self.interpreter
-            elif request.action != 'status':
+            elif not read_only:
                 with self.lock:
                     if self.stopping.is_set():
                         raise AnalysisCancelled('采集正在停止')
@@ -134,6 +150,7 @@ class RuntimeControl:
                         model = self.interpreter
                         self.epoch += 1
                         self.enabled = enabled
+                        self.analysis_issue = None
                         self.since = datetime.now().astimezone()
                         self.cancelled = threading.Event()
                         self.changed.set()
@@ -146,7 +163,7 @@ class RuntimeControl:
                 raise TimeoutError('采集停止等待超时，请查看logs')
         except (ValueError, RuntimeError, TimeoutError) as exception:
             error = str(exception)
-        if request.action != 'status':
+        if not read_only:
             runtime_logging.log_event({'stage':'control','result':'failed' if error else 'completed',
                                        'requestId':request.requestId,'action':request.action,'pid':os.getpid(),
                                        'elapsedMs':round((time.monotonic()-deadline+self.settings.timeoutSeconds)*1000,2),
@@ -155,7 +172,8 @@ class RuntimeControl:
             return ControlReply(requestId=request.requestId, pid=os.getpid(),
                                 state='stopped' if self.done.is_set() else 'stopping' if self.stopping.is_set() else 'running',
                                 analysisEnabled=self.enabled, epoch=self.epoch, ok=not error,
-                                message=error or '运行状态已更新')
+                                message=error or '运行状态已更新',
+                                analysisIssue=self.analysis_issue if request.action == 'analysis-status' and not error else None)
 
     def __enter__(self):
         """取得home锁后创建监听；旧socket名称可安全替换，启动失败传播给运行入口。"""
@@ -167,7 +185,7 @@ class RuntimeControl:
                 try:
                     request = ControlRequest.model_validate_json(self.rfile.readline(65536))
                     reply = owner.execute(request)
-                    self.wfile.write((reply.model_dump_json() + '\n').encode())
+                    self.wfile.write((reply.model_dump_json(exclude_none=True) + '\n').encode())
                 except (OSError, ValueError):
                     return
         class Server(socketserver.ThreadingUnixStreamServer):

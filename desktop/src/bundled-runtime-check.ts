@@ -33,7 +33,7 @@ export async function verifyBundledRuntimes(resources: string): Promise<void> {
         [
           '-B',
           '-c',
-          'import sys,pathlib,PIL,pydantic,yaml,mss,pynput,Quartz,Vision; from scening.observer_config import load_config,DEFAULT_CONFIG_PATH; root=pathlib.Path(sys.argv[1]).resolve(); assert pathlib.Path(sys.prefix).resolve().is_relative_to(root); assert DEFAULT_CONFIG_PATH.is_relative_to(root); load_config(DEFAULT_CONFIG_PATH); print("Python/scening ready")',
+          'import sys,pathlib,ctypes,PIL,pydantic,yaml,mss,pynput,Quartz,Vision; from scening.observer_config import load_config,DEFAULT_CONFIG_PATH; root=pathlib.Path(sys.argv[1]).resolve(); assert pathlib.Path(sys.prefix).resolve().is_relative_to(root); assert DEFAULT_CONFIG_PATH.is_relative_to(root); load_config(DEFAULT_CONFIG_PATH); ctypes.CDLL(str(root / "src/scening/_screen_stream.dylib")); print("Python/scening ready")',
           pythonRoot,
         ],
         { cwd: home, env, timeout: 45000 },

@@ -10,6 +10,7 @@ import subprocess
 import os
 import unittest
 from unittest.mock import patch
+import sys
 
 from PIL import Image
 from scening.observer_config import load_config
@@ -209,6 +210,47 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(activity.run_activity(config=self.config,interval=.001,count=3),0)
         self.assertEqual([len(f) for f in model.calls],[3,1,3])
         self.assertTrue(all(i['analyzed'] for i in self.index()['images']))
+
+    def test_quota_error_surfaces_retry_and_pause_while_capture_continues(self):
+        """真实主循环将子进程的额度拒绝转为稳定状态，保留失败批原图。"""
+        from scening import observe_activity as activity
+        from scening.kmh_interpreter import KMHInterpreter
+        from scening.runtime_control import ControlRequest, RuntimeControl
+
+        paths = self.pictures(3)
+        config = self.config.with_overrides(analysis={**self.config.analysis.model_dump(),
+                                            'retryIntervalSeconds': .1, 'maxRetries': 1})
+        statuses = []
+        model_calls = []
+
+        class Control(RuntimeControl):
+            def set_analysis_issue(self, epoch, issue):
+                super().set_analysis_issue(epoch, issue)
+                if issue is not None:
+                    request = ControlRequest(requestId='test', pid=os.getpid(), action='analysis-status')
+                    statuses.append(self.execute(request).analysisIssue)
+                    legacy = self.execute(request.model_copy(update={'action': 'status'}))
+                    if legacy.analysisIssue is not None:
+                        raise AssertionError('旧版状态协议应保持原有字段')
+
+        class QuotaModel(KMHInterpreter):
+            def analyze(self, image, frames=None):
+                model_calls.append(image)
+                self.command = [sys.executable, '-c',
+                                "import sys; sys.stderr.write('dsh: RATE_LIMIT: 429 Token Plan (2056)\\n'); sys.exit(1)"]
+                return self.run('quota-probe')
+
+        with patch.object(activity, 'SensingCollector', PreparedSource), \
+             patch.object(activity.permissions, 'screen_capture_allowed', return_value=True), \
+             patch.object(activity, 'KMHInterpreter', QuotaModel), \
+             patch.object(activity, 'RuntimeControl', Control):
+            self.assertEqual(activity.run_activity(config=config, interval=.2, count=5), 1)
+
+        self.assertEqual([status.state for status in statuses], ['retrying', 'paused'])
+        self.assertEqual({status.reason for status in statuses}, {'MiniMax Token Plan 用量已达上限（2056）'})
+        self.assertEqual(len(model_calls), 2)
+        self.assertTrue(all(path.exists() for path in paths))
+        self.assertGreater(len(self.index()['images']), len(paths))
 
     def test_T7_bad_report_keeps_capture_running_then_resumes_after_repair(self):
         from scening import observe_activity as activity

@@ -1,4 +1,5 @@
 .cache/
 out/
 release/
+release-assets/
 node_modules/

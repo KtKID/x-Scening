@@ -29,10 +29,32 @@ export async function runtimeControl(
     return await exchange(home, request, timeoutSeconds);
   } catch (error) {
     if (!(error instanceof IncompleteReply)) throw error;
-    // 四个动作均为幂等目标状态；无完整回执时以同请求重送一次，共用原截止时间。
+    // 控制动作均为幂等目标状态；无完整回执时以同请求重送一次，共用原截止时间。
     const remaining = Math.max(0, (deadline - performance.now()) / 1000);
     if (remaining <= 0) throw new Error('采集控制等待超时，请查看项目logs');
     return exchange(home, request, remaining);
+  }
+}
+
+/** 优先读取分析队列故障；旧版进程关闭未知请求时回退到原状态协议。 */
+export async function readCaptureStatus(
+  home: string,
+  pid: number,
+  timeoutSeconds: number,
+): Promise<Reply> {
+  const deadline = performance.now() + timeoutSeconds * 1000;
+  const request = ControlRequestSchema.parse({
+    requestId: randomUUID(),
+    pid,
+    action: 'analysis-status',
+  });
+  try {
+    return await exchange(home, request, timeoutSeconds);
+  } catch (error) {
+    if (!(error instanceof IncompleteReply)) throw error;
+    const remaining = (deadline - performance.now()) / 1000;
+    if (remaining <= 0) throw error;
+    return runtimeControl(home, pid, 'status', remaining);
   }
 }
 

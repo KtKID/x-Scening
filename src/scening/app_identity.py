@@ -78,7 +78,7 @@ def application_for_pid(pid):
 def display_window_pids(windows, display):
     """按系统前后层级列出与目标屏相交的可见普通窗口所属PID，保持顺序去重。
 
-    windows为CGWindowListCopyWindowInfo的只读元信息，display使用MSS/Quartz逻辑坐标。
+    windows为CGWindowListCopyWindowInfo的只读元信息，display使用Quartz逻辑坐标。
     菜单栏、浮层、透明窗口、零面积与无效矩形跳过；负坐标和跨屏窗口按矩形相交处理。
     返回PID列表，辅助进程的应用资格由application_for_pid继续校验。
     """

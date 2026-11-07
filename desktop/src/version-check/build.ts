@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { verifyBundledRuntimes } from '../bundled-runtime-check';
 import { randomUUID } from 'node:crypto';
 import {
@@ -7,6 +7,7 @@ import {
   lstat,
   open,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -82,6 +83,7 @@ export async function publishLocalBuild(
   build: LocalBuildInfo,
   compile: (build: LocalBuildInfo) => Promise<void>,
   assemble: (output: string) => Promise<void>,
+  finalize?: (app: string) => Promise<void>,
 ): Promise<void> {
   const validated = LocalBuildInfoSchema.parse(build);
   const cache = path.join(root, 'desktop/.cache');
@@ -114,6 +116,7 @@ export async function publishLocalBuild(
     )
       throw new Error('应用包中的客户端产物与本轮编译结果不一致。');
     await writeMarker(staged.info, validated);
+    await finalize?.(staged.app);
     // 首次改名沿用原应用目录身份；旧入口软链接让运行中的旧版继续更新。
     if (process.platform === 'darwin') {
       try {
@@ -199,12 +202,30 @@ async function buildLocalClient(): Promise<void> {
     options: {
       mode: { type: 'string' },
       'output-root': { type: 'string' },
+      'apple-development-identity': { type: 'string' },
     },
   });
   const mode = resolveBuildMode({
     ...process.env,
     ...(values.mode === undefined ? {} : { OBSERVER_BUILD_MODE: values.mode }),
   });
+  const appleDevelopmentIdentity =
+    values['apple-development-identity']?.toUpperCase();
+  if (appleDevelopmentIdentity !== undefined) {
+    if (process.platform !== 'darwin')
+      throw new Error('Apple Development 签名适用于 macOS 打包。');
+    if (!/^[0-9A-F]{40}$/.test(appleDevelopmentIdentity))
+      throw new Error('请提供 Apple Development 证书的 40 位 SHA-1 指纹。');
+    const identities = execFileSync(
+      '/usr/bin/security',
+      ['find-identity', '-v', '-p', 'codesigning'],
+      { encoding: 'utf8' },
+    ).matchAll(/^\s*\d+\) ([0-9A-F]{40}) "Apple Development: [^\r\n]+"$/gm);
+    if (![...identities].some(([, hash]) => hash === appleDevelopmentIdentity))
+      throw new Error(
+        '钥匙串里找不到指定的有效 Apple Development 签名证书和私钥。',
+      );
+  }
   const root = path.resolve(
     fileURLToPath(new URL('../../..', import.meta.url)),
   );
@@ -257,6 +278,13 @@ async function buildLocalClient(): Promise<void> {
           [path.join(desktop, 'scripts/prepare-python.mjs')],
           process.env,
         );
+      else if (process.platform === 'darwin')
+        await runTool(
+          desktop,
+          ['-B', path.join(root, 'src/scening/screen_stream.py')],
+          process.env,
+          path.join(root, '.venv/bin/python'),
+        );
       await runTool(
         desktop,
         [
@@ -267,10 +295,8 @@ async function buildLocalClient(): Promise<void> {
         ],
         process.env,
       );
-      // 打包器以内部可执行名生成包名；发布前统一为对外产品名称。
       if (process.platform === 'darwin') {
         const app = localClientPaths(root, output).app;
-        await rename(path.join(path.dirname(app), 'Observer.app'), app);
         // 包内依赖与Node在写成功标记前完成真实启动；资源复制遗漏在此阻止发布。
         const runtime = path.join(app, 'Contents/Resources/kmh-runtime');
         await readFile(
@@ -301,6 +327,34 @@ async function buildLocalClient(): Promise<void> {
           await verifyBundledRuntimes(path.join(app, 'Contents/Resources'));
       }
     },
+    process.platform === 'darwin' &&
+      (mode === 'publish' || appleDevelopmentIdentity !== undefined)
+      ? async (app) => {
+          // 先签 Electron 的内嵌代码，再封存应用资源和本轮构建标记。
+          const frameworks = path.join(app, 'Contents/Frameworks');
+          const components = await readdir(frameworks);
+          await runTool(
+            desktop,
+            [
+              '--force',
+              '--sign',
+              appleDevelopmentIdentity ?? '-',
+              '--timestamp=none',
+              '--preserve-metadata=entitlements',
+              ...components.map((name) => path.join(frameworks, name)),
+              app,
+            ],
+            process.env,
+            '/usr/bin/codesign',
+          );
+          await runTool(
+            desktop,
+            ['--verify', '--deep', '--strict', app],
+            process.env,
+            '/usr/bin/codesign',
+          );
+        }
+      : undefined,
   );
   console.log(
     `客户端已就绪：v${build.version} · ${mode} · ${localClientPaths(outputRoot).app}`,
